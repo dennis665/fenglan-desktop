@@ -16,7 +16,7 @@
 
     <!-- Mascot Image (WebP/JPG Sticker style) -->
     <div id="mascot-body">
-      <img id="mascot-img" src="assets/idle.jpg" alt="Mascot">
+      <img id="mascot-img" src="assets/idle.webp" alt="Mascot">
     </div>
   </div>
 
@@ -25,7 +25,7 @@
     <div class="menu-header">魔法小貓選單</div>
     <div class="menu-item" id="menu-tasks">日常任務</div>
     <div class="menu-item" id="menu-library">收藏庫</div>
-    <div class="menu-item" id="menu-music-play">影音播放 (ON/OFF)</div>
+    <div class="menu-item" id="menu-media-player">影音播放器</div>
     <div class="menu-item" id="menu-settings">警告閥值設定</div>
     <div class="menu-item" id="menu-admin">開發者模式</div>
     <hr>
@@ -94,7 +94,6 @@
         <div class="tabs">
           <button class="tab-link active" data-tab="tab-chars">角色切換</button>
           <button class="tab-link" data-tab="tab-actions">動作展示</button>
-          <button class="tab-link" data-tab="tab-music">影音播放器</button>
         </div>
 
         <!-- Tab Content: Characters -->
@@ -113,41 +112,54 @@
             <div class="action-btn-item locked-action" id="act-magic" data-action="cast">✨ 釋放小魔法 (Lv.4解鎖)</div>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
 
-        <!-- Tab Content: Music (Media Player) -->
-        <div id="tab-music" class="tab-content">
-          <div class="music-player-panel">
-            <!-- Video & Visualizer Screen -->
-            <div class="video-preview-container" style="width: 100%; height: 160px; background: #000; border-radius: 8px; margin-bottom: 10px; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; border: 1px solid #2d3436;">
-              <video id="media-video-player" style="width: 100%; height: 100%; display: none; object-fit: contain; background: #000;" controls></video>
-              <div id="media-visualizer-placeholder" style="color: #FFEAA7; font-size: 13px; display: flex; flex-direction: column; align-items: center; gap: 8px;">
-                <span style="font-size: 32px; animation: bounce 1.5s infinite alternate;">🎵</span>
-                <span id="visualizer-text">正在播放音訊...</span>
-              </div>
-            </div>
-
-            <div class="now-playing">
-              <span>正在播放: </span><strong id="playing-title">無</strong>
-            </div>
-            
-            <div class="player-controls" style="display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 10px;">
-              <button id="player-prev" class="player-btn">⏮</button>
-              <button id="player-play" class="player-btn">▶</button>
-              <button id="player-next" class="player-btn">⏭</button>
-              <button id="player-loop-mode" class="player-btn" style="font-size: 11px; padding: 4px 8px; min-width: 80px;" title="切換循環模式">全曲循環 🔁</button>
-            </div>
-
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; padding: 0 4px;">
-              <span style="font-size: 11px; color: #B2BEC3; font-weight: bold;">播放清單</span>
-              <button id="media-upload-btn" class="task-btn" style="padding: 3px 8px; font-size: 10px; border-radius: 4px;">➕ 上傳影音</button>
-            </div>
-
-            <div class="music-list-container" id="media-list-container" style="max-height: 120px; overflow-y: auto;">
-              <!-- Dynamically populated from JS (includes default and uploaded items) -->
+  <!-- Modal: Media Player -->
+  <div id="media-modal" class="modal hidden">
+    <div class="modal-content" style="max-width: 320px;">
+      <div class="modal-header">
+        <h2>🎬 影音播放器</h2>
+        <span class="close-btn" id="close-media">&times;</span>
+      </div>
+      <div class="modal-body">
+        <div class="music-player-panel">
+          <!-- Video & Visualizer Screen -->
+          <div class="video-preview-container" style="width: 100%; height: 160px; background: #000; border-radius: 8px; margin-bottom: 10px; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; border: 1px solid #2d3436;">
+            <video id="media-video-player" style="width: 100%; height: 100%; display: none; object-fit: contain; background: #000;" controls></video>
+            <div id="media-visualizer-placeholder" style="color: #FFEAA7; font-size: 13px; display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 100%; position: absolute; top: 0; left: 0; background: #000; box-sizing: border-box; padding: 10px;">
+              <canvas id="visualizer-canvas" style="width: 100%; height: 110px; display: block; background: #000;"></canvas>
+              <span id="visualizer-text" style="font-size: 11px; color: #FFEAA7; font-weight: bold; text-shadow: 0 1px 3px rgba(0,0,0,0.8); z-index: 10;">正在播放音訊...</span>
             </div>
           </div>
-        </div>
 
+          <div class="now-playing">
+            <span>正在播放: </span><strong id="playing-title">無</strong>
+          </div>
+          
+          <div class="player-controls" style="display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 10px;">
+            <button id="player-prev" class="player-btn">⏮</button>
+            <button id="player-play" class="player-btn">▶</button>
+            <button id="player-next" class="player-btn">⏭</button>
+            <button id="player-loop-mode" class="player-btn" style="font-size: 11px; padding: 4px 8px; min-width: 80px;" title="切換循環模式">全曲循環 🔁</button>
+          </div>
+
+          <div class="volume-control" style="display: flex; align-items: center; justify-content: center; gap: 6px; margin-bottom: 10px; font-size: 11px; color: #B2BEC3; font-weight: bold;">
+            <span>🔊</span>
+            <input type="range" id="player-volume" min="0" max="100" value="80" style="width: 120px; height: 4px; background: #555; outline: none; border-radius: 2px; cursor: pointer; accent-color: #FFEAA7; margin: 0 4px;">
+            <span id="volume-value" style="min-width: 32px; text-align: left;">80%</span>
+          </div>
+
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; padding: 0 4px;">
+            <span style="font-size: 11px; color: #B2BEC3; font-weight: bold;">播放清單</span>
+            <button id="media-upload-btn" class="task-btn" style="padding: 3px 8px; font-size: 10px; border-radius: 4px;">➕ 上傳影音</button>
+          </div>
+
+          <div class="music-list-container" id="media-list-container" style="max-height: 120px; overflow-y: auto;">
+            <!-- Dynamically populated from JS (includes default and uploaded items) -->
+          </div>
+        </div>
       </div>
     </div>
   </div>

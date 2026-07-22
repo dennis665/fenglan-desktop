@@ -1,16 +1,17 @@
 {
-  "name": "desktop-mascot",
+  "name": "fenglan-desktop",
   "version": "1.0.0",
   "description": "2D Chibi Desktop Mascot with Leveling System and Media Player",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "build": "electron-packager . Mascot --platform=win32 --arch=x64 --overwrite --out=dist"
+    "build": "electron-packager . fenglan-desktop --platform=win32 --arch=x64 --overwrite --out=dist"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "devDependencies": {
-    "electron": "^34.5.8"
+    "electron": "^34.5.8",
+    "electron-packager": "^17.1.2"
   }
 }

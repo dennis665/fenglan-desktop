@@ -79,6 +79,7 @@ try {
 let loopMode = localStorage.getItem('mascot_media_loop_mode') || 'list'; // 'list' or 'single'
 let currentTrackId = localStorage.getItem('mascot_current_track_id') || '';
 let videoPlayer = null;
+let mediaVolume = parseFloat(localStorage.getItem('mascot_media_volume')) || 0.8;
 
 // Helper to save databases to both files and localStorage
 function saveDb(name) {
@@ -258,6 +259,9 @@ let synthInterval = null;
 let currentTrack = null;
 let isPlaying = false;
 let playTimeTimer = null;
+let audioSourceNode = null;
+let analyserNode = null;
+let visualizerAnimationId = null;
 
 const tracks = [
   {
@@ -307,14 +311,102 @@ function playNote(freq, duration) {
   osc.type = 'triangle'; // 8-bit style triangle wave for melody
   osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
   
-  gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+  gain.gain.setValueAtTime(0.15 * mediaVolume, audioCtx.currentTime);
   gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration - 0.05);
   
   osc.connect(gain);
-  gain.connect(audioCtx.destination);
+  if (analyserNode) {
+    gain.connect(analyserNode);
+  } else {
+    gain.connect(audioCtx.destination);
+  }
   
   osc.start();
   osc.stop(audioCtx.currentTime + duration);
+}
+
+function initAudioAnalyser() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (audioCtx && audioCtx.state === 'suspended') {
+    audioCtx.resume();
+  }
+  if (!analyserNode) {
+    analyserNode = audioCtx.createAnalyser();
+    analyserNode.fftSize = 64; // 32 frequency bins
+    
+    // Connect video player
+    if (videoPlayer && !audioSourceNode) {
+      try {
+        audioSourceNode = audioCtx.createMediaElementSource(videoPlayer);
+        audioSourceNode.connect(analyserNode);
+        analyserNode.connect(audioCtx.destination);
+      } catch (e) {
+        console.error("Failed to connect video source node:", e);
+      }
+    }
+  }
+}
+
+function startVisualizerAnimation() {
+  initAudioAnalyser();
+  const canvas = document.getElementById('visualizer-canvas');
+  if (!canvas) return;
+  
+  const canvasCtx = canvas.getContext('2d');
+  const bufferLength = analyserNode.frequencyBinCount;
+  const dataArray = new Uint8Array(bufferLength);
+  
+  // Set explicit canvas resolution to avoid blur
+  canvas.width = canvas.clientWidth || 300;
+  canvas.height = canvas.clientHeight || 110;
+  
+  function draw() {
+    if (!isPlaying) {
+      canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+      return;
+    }
+    
+    // Performance optimization: pause draw loop if player modal is closed
+    const modal = document.getElementById('media-modal');
+    if (modal && modal.classList.contains('hidden')) {
+      visualizerAnimationId = null;
+      return;
+    }
+    
+    visualizerAnimationId = requestAnimationFrame(draw);
+    analyserNode.getByteFrequencyData(dataArray);
+    
+    // Draw semi-transparent background for neon glow motion trails!
+    canvasCtx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+    canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    const barWidth = (canvas.width / bufferLength) * 1.6;
+    let barHeight;
+    let x = 0;
+    
+    for (let i = 0; i < bufferLength; i++) {
+      barHeight = dataArray[i] * 0.45; // Scale height
+      
+      // Dynamic HSL neon colors that change over time and frequency
+      const hue = (i * 360 / bufferLength + Date.now() / 40) % 360;
+      canvasCtx.fillStyle = `hsla(${hue}, 85%, 65%, 0.85)`;
+      
+      // Glow effect
+      canvasCtx.shadowBlur = 8;
+      canvasCtx.shadowColor = `hsla(${hue}, 85%, 65%, 0.5)`;
+      
+      // Render visualizer bar
+      canvasCtx.fillRect(x, canvas.height - barHeight, barWidth - 3, barHeight);
+      
+      x += barWidth;
+    }
+    canvasCtx.shadowBlur = 0; // reset shadow
+  }
+  
+  if (visualizerAnimationId) cancelAnimationFrame(visualizerAnimationId);
+  draw();
 }
 
 function getPlaylist() {
@@ -360,9 +452,11 @@ function playTrack(trackId) {
     document.getElementById('media-visualizer-placeholder').style.display = 'flex';
     document.getElementById('media-video-player').style.display = 'none';
     startChiptune(track.trackIdx);
+    startVisualizerAnimation();
   } else {
     // Custom audio/video playing via HTML5 video element
     videoPlayer.src = track.path;
+    videoPlayer.volume = mediaVolume;
     videoPlayer.load();
     
     if (track.type === 'video') {
@@ -371,6 +465,7 @@ function playTrack(trackId) {
     } else {
       document.getElementById('media-visualizer-placeholder').style.display = 'flex';
       document.getElementById('media-video-player').style.display = 'none';
+      startVisualizerAnimation();
     }
     
     videoPlayer.play().catch(e => {
@@ -385,6 +480,17 @@ function playTrack(trackId) {
 function stopAllPlayback() {
   isPlaying = false;
   stopChiptune();
+  
+  if (visualizerAnimationId) {
+    cancelAnimationFrame(visualizerAnimationId);
+    visualizerAnimationId = null;
+  }
+  
+  const canvas = document.getElementById('visualizer-canvas');
+  if (canvas) {
+    const canvasCtx = canvas.getContext('2d');
+    canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+  }
   
   if (videoPlayer) {
     videoPlayer.pause();
@@ -606,7 +712,8 @@ function registerMouseIgnore() {
     tasksModal,
     libraryModal,
     document.getElementById('settings-modal'),
-    document.getElementById('admin-modal')
+    document.getElementById('admin-modal'),
+    document.getElementById('media-modal')
   ];
 
   window.addEventListener('mousemove', (e) => {
@@ -727,10 +834,10 @@ function setMascotState(state) {
     } else {
       // Fallback to static placeholder images we generated
       if (state === 'idle') {
-        imgEl.src = 'assets/idle.jpg';
+        imgEl.src = 'assets/idle.webp';
         imgEl.style.transform = 'none';
       } else if (state === 'walk_left' || state === 'walk_right' || state === 'walk_up' || state === 'walk_down') {
-        imgEl.src = 'assets/walk.jpg';
+        imgEl.src = 'assets/walk.webp';
         // Fallback direction flipping
         if (state === 'walk_left') {
           imgEl.style.transform = 'scaleX(-1)';
@@ -738,10 +845,10 @@ function setMascotState(state) {
           imgEl.style.transform = 'none';
         }
       } else if (state === 'dragging' || state === 'falling') {
-        imgEl.src = 'assets/drag.jpg';
+        imgEl.src = 'assets/drag.webp';
         imgEl.style.transform = 'none';
       } else if (state === 'clicked' || state === 'exiting') {
-        imgEl.src = 'assets/clicked.jpg';
+        imgEl.src = 'assets/clicked.webp';
         imgEl.style.transform = 'none';
       }
     }
@@ -853,10 +960,8 @@ function initDragAndDrop() {
 }
 
 // Gravity Falling Loop
-async function gravityFallLoop() {
+function gravityFallLoop() {
   if (!isFalling) return;
-  
-  await syncWindowPosition();
   
   const targetY = screenHeight - windowHeight - taskbarOffset;
   
@@ -995,16 +1100,22 @@ function walkLoop() {
   
   walkStepsCount++;
   
-  // Walk Task progress
+  // Walk Task progress (update UI directly without heavy saveProgress/updateTasksUI redraws every step)
   if (walkStepsCount % 5 === 0) {
     dailyProgress.walkCount++;
-    document.getElementById('walk-count').innerText = Math.min(dailyProgress.walkCount, 100);
-    if (dailyProgress.walkCount >= 100 && !dailyProgress.walkClaimed) {
-      document.getElementById('btn-task-walk').classList.remove('disabled');
-      document.getElementById('btn-task-walk').removeAttribute('disabled');
+    const walkText = document.getElementById('walk-count');
+    if (walkText) {
+      walkText.innerText = Math.min(dailyProgress.walkCount, 100);
     }
-    saveProgress();
-    updateTasksUI();
+    if (dailyProgress.walkCount >= 100 && !dailyProgress.walkClaimed) {
+      const btn = document.getElementById('btn-task-walk');
+      if (btn && btn.disabled) {
+        btn.classList.remove('disabled');
+        btn.removeAttribute('disabled');
+        saveProgress();
+        updateTasksUI();
+      }
+    }
   }
   
   // Throttle window position updates to ~30 FPS (every 33ms) to save CPU/GPU layout overhead
@@ -1019,6 +1130,7 @@ function walkLoop() {
     ipcRenderer.send('set-window-position', walkTargetX, walkTargetY);
     isWalking = false;
     setMascotState('idle');
+    saveProgress(); // Persist walk counts and state at the end of the walk path!
     startWalkingAI(); // loop next walk
   } else {
     requestAnimationFrame(walkLoop);
@@ -1215,7 +1327,8 @@ function initUIEvents() {
         tasksModal,
         libraryModal,
         document.getElementById('settings-modal'),
-        document.getElementById('admin-modal')
+        document.getElementById('admin-modal'),
+        document.getElementById('media-modal')
       ];
       for (const el of interactiveElements) {
         if (el && !el.classList.contains('hidden')) {
@@ -1338,14 +1451,29 @@ function initUIEvents() {
     setTimeout(() => { if (!isAnyModalOpen()) startWalkingAI(); }, 100);
   });
 
-  // Menu Play/Stop BGM
-  document.getElementById('menu-music-play').addEventListener('click', () => {
+  // Show Media Player Modal
+  document.getElementById('menu-media-player').addEventListener('click', () => {
+    document.getElementById('media-modal').classList.remove('hidden');
     contextMenu.classList.add('hidden');
+    renderPlaylistUI();
+    
+    // Resume visualizer if audio is playing in the background
     if (isPlaying) {
-      stopChiptune();
-    } else {
-      startChiptune(0);
+      const playlist = getPlaylist();
+      const track = playlist.find(t => t.id === currentTrackId);
+      if (track && track.type !== 'video') {
+        startVisualizerAnimation();
+      }
     }
+    
+    isWalking = false;
+    if (walkTimer) clearTimeout(walkTimer);
+    setMascotState('idle');
+  });
+
+  document.getElementById('close-media').addEventListener('click', () => {
+    document.getElementById('media-modal').classList.add('hidden');
+    setTimeout(() => { if (!isAnyModalOpen()) startWalkingAI(); }, 100);
   });
 
   // Tab Link Switches
@@ -1468,16 +1596,10 @@ function initUIEvents() {
 
   // Media Upload Event (Publicly accessible, not limited to Developer Mode!)
   document.getElementById('media-upload-btn').addEventListener('click', async () => {
-    const sourcePath = await ipcRenderer.invoke('show-media-dialog');
-    if (!sourcePath) return; // Cancelled
+    const filePaths = await ipcRenderer.invoke('show-media-dialog');
+    if (!filePaths || !Array.isArray(filePaths) || filePaths.length === 0) return; // Cancelled
     
-    const ext = path.extname(sourcePath).toLowerCase();
-    const baseName = path.basename(sourcePath);
-    const type = (ext === '.mp4' || ext === '.webm') ? 'video' : 'audio';
-    
-    const destName = `custom_media_${Date.now()}${ext}`;
-    
-    // Resolve project directory safely
+    // Resolve project directory safely once
     let rawPath = window.location.pathname;
     if (rawPath.startsWith('/') && rawPath.charAt(2) === ':') {
       rawPath = rawPath.substring(1);
@@ -1486,30 +1608,53 @@ function initUIEvents() {
     const lastSlash = Math.max(htmlPath.lastIndexOf('/'), htmlPath.lastIndexOf('\\'));
     const projectDir = htmlPath.substring(0, lastSlash);
     
+    const targetDir = path.join(projectDir, 'assets', 'media');
     try {
-      const targetDir = path.join(projectDir, 'assets', 'media');
       fs.mkdirSync(targetDir, { recursive: true });
+    } catch (e) {
+      console.error(e);
+    }
+    
+    let successCount = 0;
+    let failCount = 0;
+    
+    for (let i = 0; i < filePaths.length; i++) {
+      const sourcePath = filePaths[i];
+      const ext = path.extname(sourcePath).toLowerCase();
+      const baseName = path.basename(sourcePath);
+      const type = (ext === '.mp4' || ext === '.webm') ? 'video' : 'audio';
       
+      // Use unique names based on timestamp and index to prevent collision!
+      const destName = `custom_media_${Date.now()}_${i}${ext}`;
       const destPath = path.join(targetDir, destName);
-      fs.copyFileSync(sourcePath, destPath);
-      
       const relativePath = `assets/media/${destName}`;
       
-      const newMedia = {
-        id: 'custom_' + Date.now(),
-        name: baseName,
-        path: relativePath,
-        type: type
-      };
-      
-      customMedia.push(newMedia);
+      try {
+        fs.copyFileSync(sourcePath, destPath);
+        
+        const newMedia = {
+          id: 'custom_' + Date.now() + '_' + i,
+          name: baseName,
+          path: relativePath,
+          type: type
+        };
+        customMedia.push(newMedia);
+        successCount++;
+      } catch (err) {
+        console.error(`Failed to copy file ${sourcePath}:`, err);
+        failCount++;
+      }
+    }
+    
+    if (successCount > 0) {
       saveDb('media');
-      
-      showDialogue(`✅ 成功上載影音檔案：${baseName}`);
       renderPlaylistUI();
-    } catch (err) {
-      console.error(err);
-      showDialogue("❌ 複製影音檔案失敗，請再試一次。");
+    }
+    
+    if (failCount === 0) {
+      showDialogue(`✅ 成功上傳 ${successCount} 個影音檔案！`);
+    } else {
+      showDialogue(`⚠️ 上傳結果：${successCount} 成功，${failCount} 失敗。`);
     }
   });
 
@@ -1877,6 +2022,26 @@ window.addEventListener('DOMContentLoaded', async () => {
   }
   updateLoopModeUI();
   renderPlaylistUI();
+
+  // Volume Slider Initialization & Listener
+  const volSlider = document.getElementById('player-volume');
+  const volValText = document.getElementById('volume-value');
+  if (volSlider && volValText) {
+    volSlider.value = Math.round(mediaVolume * 100);
+    volValText.innerText = `${volSlider.value}%`;
+    if (videoPlayer) {
+      videoPlayer.volume = mediaVolume;
+    }
+    volSlider.addEventListener('input', (e) => {
+      const val = parseInt(e.target.value);
+      mediaVolume = val / 100;
+      localStorage.setItem('mascot_media_volume', mediaVolume);
+      volValText.innerText = `${val}%`;
+      if (videoPlayer) {
+        videoPlayer.volume = mediaVolume;
+      }
+    });
+  }
 
   // Listen to system updates
   ipcRenderer.on('system-status', (event, status) => {

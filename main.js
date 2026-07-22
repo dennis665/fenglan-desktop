@@ -97,16 +97,16 @@ function createWindow() {
     return result.filePaths[0];
   });
 
-  // Native File dialog for media files
+  // Native File dialog for media files (supporting multi-selection!)
   ipcMain.handle('show-media-dialog', async (event) => {
     const result = await dialog.showOpenDialog(mainWindow, {
-      properties: ['openFile'],
+      properties: ['openFile', 'multiSelections'],
       filters: [
         { name: 'Audio/Video Files', extensions: ['mp3', 'wav', 'mp4', 'webm', 'ogg'] }
       ]
     });
     if (result.canceled || result.filePaths.length === 0) return null;
-    return result.filePaths[0];
+    return result.filePaths;
   });
 
   // Handle manual window moving via mouse drag from renderer
@@ -138,7 +138,7 @@ function createWindow() {
     if (mainWindow && !mainWindow.isDestroyed()) {
       const posX = Math.round(Number(x));
       const posY = Math.round(Number(y));
-      if (!isNaN(posX) && !isNaN(posY)) {
+      if (Number.isInteger(posX) && Number.isInteger(posY)) {
         mainWindow.setPosition(posX, posY);
       }
     }
