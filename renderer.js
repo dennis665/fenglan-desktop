@@ -116,7 +116,7 @@ function getAllCharacters() {
 (function() {
   try {
     // Restore cat defaults by cleaning custom cat entries in localStorage directly on global state variables
-    const states = ['idle', 'walk_left', 'walk_right', 'walk_up', 'walk_down', 'dragging', 'clicked', 'falling'];
+    const states = ['idle', 'walk_left', 'walk_right', 'walk_up', 'walk_down', 'walk_up_left', 'walk_up_right', 'walk_down_left', 'walk_down_right', 'dragging', 'clicked', 'falling'];
     states.forEach(state => {
       delete customImages[`cat_${state}`];
       delete customDialogues[`cat_${state}`];
@@ -221,13 +221,18 @@ let screenHeight = 1080;
 const windowWidth = 450;
 const windowHeight = 350;
 
+let displayX = 0;
+let displayY = 0;
+let workWidth = 1920;
+let workHeight = 1080;
+
 let isWalking = false;
 let walkDirection = 'right'; // 'right', 'left', 'up', 'down'
 let walkSpeed = 1.5;
-let walkTargetX = 0;
-let walkTargetY = 0;
 let walkTimer = null;
 let walkStepsCount = 0;
+let walkSegmentsLeft = 0;
+let walkStepsLeft = 0;
 
 let isDragging = false;
 let isFalling = false;
@@ -262,6 +267,7 @@ let playTimeTimer = null;
 let audioSourceNode = null;
 let analyserNode = null;
 let visualizerAnimationId = null;
+let menuMemoryInterval = null;
 
 const tracks = [
   {
@@ -323,6 +329,14 @@ function playNote(freq, duration) {
   
   osc.start();
   osc.stop(audioCtx.currentTime + duration);
+  
+  // Prevent Web Audio memory leak: disconnect nodes after note stops playing
+  setTimeout(() => {
+    try {
+      osc.disconnect();
+      gain.disconnect();
+    } catch (e) {}
+  }, (duration + 0.2) * 1000);
 }
 
 function initAudioAnalyser() {
@@ -391,18 +405,16 @@ function startVisualizerAnimation() {
       
       // Dynamic HSL neon colors that change over time and frequency
       const hue = (i * 360 / bufferLength + Date.now() / 40) % 360;
+      // Draw background glow bar (slightly wider and taller with lower opacity)
+      canvasCtx.fillStyle = `hsla(${hue}, 85%, 65%, 0.15)`;
+      canvasCtx.fillRect(x - 2, canvas.height - barHeight - 2, barWidth + 1, barHeight + 2);
+      
+      // Draw foreground solid bar
       canvasCtx.fillStyle = `hsla(${hue}, 85%, 65%, 0.85)`;
-      
-      // Glow effect
-      canvasCtx.shadowBlur = 8;
-      canvasCtx.shadowColor = `hsla(${hue}, 85%, 65%, 0.5)`;
-      
-      // Render visualizer bar
       canvasCtx.fillRect(x, canvas.height - barHeight, barWidth - 3, barHeight);
       
       x += barWidth;
     }
-    canvasCtx.shadowBlur = 0; // reset shadow
   }
   
   if (visualizerAnimationId) cancelAnimationFrame(visualizerAnimationId);
@@ -495,6 +507,9 @@ function stopAllPlayback() {
   if (videoPlayer) {
     videoPlayer.pause();
     videoPlayer.src = '';
+    try {
+      videoPlayer.load(); // Force release media file buffers and decoder memory from RAM
+    } catch (e) {}
   }
   
   if (playTimeTimer) clearInterval(playTimeTimer);
@@ -505,18 +520,36 @@ function stopAllPlayback() {
 
 function startTaskTimer() {
   if (playTimeTimer) clearInterval(playTimeTimer);
+  let tickCount = 0;
   playTimeTimer = setInterval(() => {
     if (isPlaying) {
       dailyProgress.musicTime++;
+      tickCount++;
+      
+      let needSave = false;
       if (dailyProgress.musicTime >= 60 && !dailyProgress.musicClaimed) {
         const musicBtn = document.getElementById('btn-task-music');
         if (musicBtn) {
           musicBtn.classList.remove('disabled');
           musicBtn.removeAttribute('disabled');
         }
+        needSave = true; // Save immediately on task unlock
       }
-      saveProgress();
-      updateTasksUI();
+      
+      // Throttle localStorage writing to every 10s of active playing
+      if (tickCount % 10 === 0 || needSave) {
+        saveProgress();
+      }
+      
+      // Redraw tasks UI ONLY if tasks modal is currently open on screen
+      if (tasksModal && !tasksModal.classList.contains('hidden')) {
+        updateTasksUI();
+      } else {
+        const musicTimeText = document.getElementById('music-time');
+        if (musicTimeText) {
+          musicTimeText.innerText = Math.min(dailyProgress.musicTime, 60);
+        }
+      }
     }
   }, 1000);
 }
@@ -803,6 +836,10 @@ const defaultTexts = {
   walk_right: "向右前進👉",
   walk_up: "向上爬爬攀升🧗‍♂️",
   walk_down: "向下走去👇",
+  walk_up_left: "往左上角爬行🧗‍♂️",
+  walk_up_right: "往右上角漫步↗️",
+  walk_down_left: "往左下角溜達↙️",
+  walk_down_right: "往右下角滑行↘️",
   dragging: "放開我啦喵！><",
   falling: "哇啊啊！重力吸引中！💥",
   clicked: "嘻嘻，主人找我玩嗎？✨",
@@ -836,12 +873,13 @@ function setMascotState(state) {
       if (state === 'idle') {
         imgEl.src = 'assets/idle.webp';
         imgEl.style.transform = 'none';
-      } else if (state === 'walk_left' || state === 'walk_right' || state === 'walk_up' || state === 'walk_down') {
+      } else if (state === 'walk_left' || state === 'walk_right' || state === 'walk_up' || state === 'walk_down' ||
+                 state === 'walk_up_left' || state === 'walk_up_right' || state === 'walk_down_left' || state === 'walk_down_right') {
         imgEl.src = 'assets/walk.webp';
         // Fallback direction flipping
-        if (state === 'walk_left') {
+        if (state === 'walk_left' || state === 'walk_up_left' || state === 'walk_down_left') {
           imgEl.style.transform = 'scaleX(-1)';
-        } else {
+        } else if (state === 'walk_right' || state === 'walk_up_right' || state === 'walk_down_right') {
           imgEl.style.transform = 'none';
         }
       } else if (state === 'dragging' || state === 'falling') {
@@ -869,6 +907,10 @@ async function syncWindowPosition() {
     windowY = bounds.y;
     screenWidth = bounds.screenWidth;
     screenHeight = bounds.screenHeight;
+    displayX = bounds.displayX !== undefined ? bounds.displayX : 0;
+    displayY = bounds.displayY !== undefined ? bounds.displayY : 0;
+    workWidth = bounds.workWidth !== undefined ? bounds.workWidth : bounds.screenWidth;
+    workHeight = bounds.workHeight !== undefined ? bounds.workHeight : bounds.screenHeight;
   }
 }
 
@@ -963,7 +1005,7 @@ function initDragAndDrop() {
 function gravityFallLoop() {
   if (!isFalling) return;
   
-  const targetY = screenHeight - windowHeight - taskbarOffset;
+  const targetY = displayY + workHeight - windowHeight;
   
   if (windowY < targetY) {
     fallSpeed += gravity;
@@ -999,108 +1041,145 @@ function isAnyModalOpen() {
 async function startWalkingAI() {
   if (isDragging || isFalling || isWalking) return;
   if (isAnyModalOpen()) return; // Stop walking AI if any setting modal is open
+  if (contextMenu && !contextMenu.classList.contains('hidden')) return; // Stop if menu is open
   
   // Decide walk frequency randomly
-  const delay = 2000 + Math.random() * 3000; // 2~5 seconds (increased walking frequency!)
+  const delay = 2500 + Math.random() * 3500; // 2.5~6 seconds
   walkTimer = setTimeout(async () => {
     await syncWindowPosition();
     
-    // Choose random direction
-    const directions = ['left', 'right', 'up', 'down'];
-    const dir = directions[Math.floor(Math.random() * directions.length)];
-    
-    isWalking = true;
-    
-    const dist = 100 + Math.random() * 150; // Walk 100~250px
-    
-    walkTargetX = windowX;
-    walkTargetY = windowY;
-    
-    let walkState = 'idle';
-    
-    if (dir === 'left') {
-      walkTargetX = windowX - dist;
-      walkState = 'walk_left';
-    } else if (dir === 'right') {
-      walkTargetX = windowX + dist;
-      walkState = 'walk_right';
-    } else if (dir === 'up') {
-      walkTargetY = windowY - dist;
-      walkState = 'walk_up';
-    } else if (dir === 'down') {
-      walkTargetY = windowY + dist;
-      walkState = 'walk_down';
-    }
-    
-    // Screen boundary check
-    const maxY = screenHeight - windowHeight - taskbarOffset;
-    const maxX = screenWidth - windowWidth;
-    
-    if (walkTargetX < 0) {
-      walkTargetX = 10;
-    }
-    if (walkTargetX > maxX) {
-      walkTargetX = maxX - 10;
-    }
-    if (walkTargetY < 0) {
-      walkTargetY = 10;
-    }
-    if (walkTargetY > maxY) {
-      walkTargetY = maxY - 10;
-    }
-    
-    // Safety check: if target is too close to current position, pick again immediately
-    const diffX = walkTargetX - windowX;
-    const diffY = walkTargetY - windowY;
-    if (Math.abs(diffX) < 5 && Math.abs(diffY) < 5) {
-      isWalking = false;
-      startWalkingAI();
-      return;
-    }
-    
-    walkDirection = dir;
-    setMascotState(walkState);
-    
-    walkLoop();
+    // Decide number of segments for this walk session (e.g. 2 to 3 segments)
+    walkSegmentsLeft = 2 + Math.floor(Math.random() * 2); 
+    startNextWalkSegment();
   }, delay);
+}
+
+function startNextWalkSegment() {
+  if (isDragging || isFalling) {
+    isWalking = false;
+    return;
+  }
+  
+  // Check if context menu or modals were opened during transition
+  if (isAnyModalOpen() || (contextMenu && !contextMenu.classList.contains('hidden'))) {
+    isWalking = false;
+    setMascotState('idle');
+    return;
+  }
+  
+  walkSegmentsLeft--;
+  
+  // Boundary-aware direction picker: filter out directions that would instantly hit screen edges!
+  const minX = displayX + 15;
+  const maxX = displayX + workWidth - windowWidth - 15;
+  const minY = displayY + 15;
+  const maxY = displayY + workHeight - windowHeight - 15;
+  
+  const availableDirections = [];
+  if (windowX > minX) availableDirections.push('left');
+  if (windowX < maxX) availableDirections.push('right');
+  if (windowY > minY) availableDirections.push('up');
+  if (windowY < maxY) availableDirections.push('down');
+  
+  if (windowX > minX && windowY > minY) availableDirections.push('up_left');
+  if (windowX < maxX && windowY > minY) availableDirections.push('up_right');
+  if (windowX > minX && windowY < maxY) availableDirections.push('down_left');
+  if (windowX < maxX && windowY < maxY) availableDirections.push('down_right');
+  
+  const directions = availableDirections.length > 0 ? availableDirections : ['left', 'right', 'up', 'down'];
+  walkDirection = directions[Math.floor(Math.random() * directions.length)];
+  
+  // Walk duration: 45 to 90 updates (approx 1.5s to 3s per segment)
+  walkStepsLeft = 45 + Math.floor(Math.random() * 45);
+  
+  isWalking = true;
+  
+  let walkState = 'idle';
+  if (walkDirection === 'left') {
+    walkState = 'walk_left';
+  } else if (walkDirection === 'right') {
+    walkState = 'walk_right';
+  } else if (walkDirection === 'up') {
+    walkState = 'walk_up';
+  } else if (walkDirection === 'down') {
+    walkState = 'walk_down';
+  } else if (walkDirection === 'up_left') {
+    walkState = 'walk_up_left';
+  } else if (walkDirection === 'up_right') {
+    walkState = 'walk_up_right';
+  } else if (walkDirection === 'down_left') {
+    walkState = 'walk_down_left';
+  } else if (walkDirection === 'down_right') {
+    walkState = 'walk_down_right';
+  }
+  
+  setMascotState(walkState);
+  walkLoop();
 }
 
 let lastWindowMoveTime = 0;
 function walkLoop() {
   if (!isWalking || isDragging || isFalling) return;
   
-  let arrived = false;
-  const speed = 1.5;
-  
-  if (walkDirection === 'left') {
-    windowX -= speed;
-    if (windowX <= walkTargetX) {
-      windowX = walkTargetX;
-      arrived = true;
-    }
-  } else if (walkDirection === 'right') {
-    windowX += speed;
-    if (windowX >= walkTargetX) {
-      windowX = walkTargetX;
-      arrived = true;
-    }
-  } else if (walkDirection === 'up') {
-    windowY -= speed;
-    if (windowY <= walkTargetY) {
-      windowY = walkTargetY;
-      arrived = true;
-    }
-  } else if (walkDirection === 'down') {
-    windowY += speed;
-    if (windowY >= walkTargetY) {
-      windowY = walkTargetY;
-      arrived = true;
-    }
+  // Check if context menu or modal is open during walk
+  if (isAnyModalOpen() || (contextMenu && !contextMenu.classList.contains('hidden'))) {
+    isWalking = false;
+    setMascotState('idle');
+    return;
   }
   
+  // Move window (including diagonal movement with normalized speed)
+  const diagSpeed = walkSpeed * 0.707;
+  if (walkDirection === 'left') {
+    windowX -= walkSpeed;
+  } else if (walkDirection === 'right') {
+    windowX += walkSpeed;
+  } else if (walkDirection === 'up') {
+    windowY -= walkSpeed;
+  } else if (walkDirection === 'down') {
+    windowY += walkSpeed;
+  } else if (walkDirection === 'up_left') {
+    windowX -= diagSpeed;
+    windowY -= diagSpeed;
+  } else if (walkDirection === 'up_right') {
+    windowX += diagSpeed;
+    windowY -= diagSpeed;
+  } else if (walkDirection === 'down_left') {
+    windowX -= diagSpeed;
+    windowY += diagSpeed;
+  } else if (walkDirection === 'down_right') {
+    windowX += diagSpeed;
+    windowY += diagSpeed;
+  }
+  
+  // Screen boundaries check (dynamically bounded inside the current monitor!)
+  const minX = displayX + 10;
+  const maxX = displayX + workWidth - windowWidth - 10;
+  const minY = displayY + 10;
+  const maxY = displayY + workHeight - windowHeight - 10;
+  
+  let hitBoundary = false;
+  if (windowX < minX) {
+    windowX = minX;
+    hitBoundary = true;
+  }
+  if (windowX > maxX) {
+    windowX = maxX;
+    hitBoundary = true;
+  }
+  if (windowY < minY) {
+    windowY = minY;
+    hitBoundary = true;
+  }
+  if (windowY > maxY) {
+    windowY = maxY;
+    hitBoundary = true;
+  }
+  
+  walkStepsLeft--;
   walkStepsCount++;
   
-  // Walk Task progress (update UI directly without heavy saveProgress/updateTasksUI redraws every step)
+  // Walk Task progress
   if (walkStepsCount % 5 === 0) {
     dailyProgress.walkCount++;
     const walkText = document.getElementById('walk-count');
@@ -1118,20 +1197,31 @@ function walkLoop() {
     }
   }
   
-  // Throttle window position updates to ~30 FPS (every 33ms) to save CPU/GPU layout overhead
+  // Throttle window position updates to ~30 FPS
   const now = performance.now();
   if (now - lastWindowMoveTime >= 33) {
     ipcRenderer.send('set-window-position', windowX, windowY);
     lastWindowMoveTime = now;
   }
   
-  if (arrived) {
-    // Send final position to align perfectly
-    ipcRenderer.send('set-window-position', walkTargetX, walkTargetY);
-    isWalking = false;
-    setMascotState('idle');
-    saveProgress(); // Persist walk counts and state at the end of the walk path!
-    startWalkingAI(); // loop next walk
+  // Check segment completion
+  if (walkStepsLeft <= 0 || hitBoundary) {
+    // Send final position for alignment
+    ipcRenderer.send('set-window-position', windowX, windowY);
+    
+    if (walkSegmentsLeft > 0) {
+      // Pause briefly (e.g. 300ms) to look around, then start next walk segment!
+      setMascotState('idle');
+      setTimeout(() => {
+        startNextWalkSegment();
+      }, 300);
+    } else {
+      // All segments finished
+      isWalking = false;
+      setMascotState('idle');
+      saveProgress();
+      startWalkingAI();
+    }
   } else {
     requestAnimationFrame(walkLoop);
   }
@@ -1272,6 +1362,19 @@ function updateLocks() {
   }
 }
 
+// Dynamic memory update helper
+async function updateMenuMemory() {
+  try {
+    const memMB = await ipcRenderer.invoke('get-app-memory');
+    const memSpan = document.getElementById('menu-memory-usage');
+    if (memSpan) {
+      memSpan.innerText = memMB;
+    }
+  } catch (e) {
+    console.error("Failed to fetch memory:", e);
+  }
+}
+
 // --- Menu & Modals Event listeners ---
 function initUIEvents() {
   // Hide or show Developer Mode menu option dynamically based on env variable
@@ -1289,8 +1392,18 @@ function initUIEvents() {
     e.preventDefault();
     contextMenu.classList.remove('hidden');
     
+    // Force mascot to stop walking immediately and stay still (idle) while menu is open!
+    isWalking = false;
+    if (walkTimer) clearTimeout(walkTimer);
+    setMascotState('idle');
+    
     // Disable mouse ignore immediately when menu opens to capture click-away events!
     ipcRenderer.send('set-ignore-mouse', false, { forward: true });
+    
+    // Query and update memory usage immediately, then poll every 1s while menu is open
+    updateMenuMemory();
+    if (menuMemoryInterval) clearInterval(menuMemoryInterval);
+    menuMemoryInterval = setInterval(updateMenuMemory, 1000);
     
     const menuWidth = contextMenu.offsetWidth || 160;
     const menuHeight = contextMenu.offsetHeight || 190;
@@ -1316,7 +1429,13 @@ function initUIEvents() {
 
   window.addEventListener('click', (e) => {
     if (!contextMenu.contains(e.target)) {
+      const wasVisible = !contextMenu.classList.contains('hidden');
       contextMenu.classList.add('hidden');
+      
+      if (menuMemoryInterval) {
+        clearInterval(menuMemoryInterval);
+        menuMemoryInterval = null;
+      }
       
       // Re-evaluate mouse ignoring immediately based on click target
       let onInteractive = false;
@@ -1341,13 +1460,50 @@ function initUIEvents() {
         }
       }
       ipcRenderer.send('set-ignore-mouse', !onInteractive, { forward: true });
+      
+      if (wasVisible) {
+        setTimeout(() => { if (!isAnyModalOpen()) startWalkingAI(); }, 100);
+      }
+    }
+  });
+
+  // Clear memory polling when any menu item is clicked
+  contextMenu.addEventListener('click', () => {
+    if (menuMemoryInterval) {
+      clearInterval(menuMemoryInterval);
+      menuMemoryInterval = null;
     }
   });
 
   // Also close context menu when window loses focus (clicked on desktop outside)
   window.addEventListener('blur', () => {
+    const wasVisible = !contextMenu.classList.contains('hidden');
     contextMenu.classList.add('hidden');
     ipcRenderer.send('set-ignore-mouse', true, { forward: true });
+    
+    if (menuMemoryInterval) {
+      clearInterval(menuMemoryInterval);
+      menuMemoryInterval = null;
+    }
+    
+    if (wasVisible) {
+      setTimeout(() => { if (!isAnyModalOpen()) startWalkingAI(); }, 100);
+    }
+  });
+
+  // Relaunch application option to release memory
+  document.getElementById('menu-relaunch').addEventListener('click', () => {
+    contextMenu.classList.add('hidden');
+    
+    // Save state first to prevent progress loss
+    saveProgress();
+    stopAllPlayback();
+    
+    showDialogue("🔄 正在儲存進度並重啟釋放記憶體...", 3000);
+    
+    setTimeout(() => {
+      ipcRenderer.send('relaunch-app');
+    }, 800);
   });
 
   // Quit with animation and goodbye speech
@@ -1776,7 +1932,7 @@ function initUIEvents() {
       saveDb('characters');
       
       // 3. Clean up customImages & dialogues
-      const states = ['idle', 'walk_left', 'walk_right', 'walk_up', 'walk_down', 'dragging', 'clicked', 'falling'];
+      const states = ['idle', 'walk_left', 'walk_right', 'walk_up', 'walk_down', 'walk_up_left', 'walk_up_right', 'walk_down_left', 'walk_down_right', 'dragging', 'clicked', 'falling'];
       states.forEach(state => {
         delete customImages[`${charId}_${state}`];
         delete customDialogues[`${charId}_${state}`];

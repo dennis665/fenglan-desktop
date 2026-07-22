@@ -28,8 +28,12 @@
     <div class="menu-item" id="menu-media-player">影音播放器</div>
     <div class="menu-item" id="menu-settings">警告閥值設定</div>
     <div class="menu-item" id="menu-admin">開發者模式</div>
+    <div class="menu-item" id="menu-relaunch" style="color: #FFEAA7;">重新啟動軟體</div>
     <hr>
     <div class="menu-item" id="menu-quit">離開寵物</div>
+    <div class="menu-info" id="menu-memory-usage-item" style="font-size: 9px; color: #95a5a6; padding: 4px 10px; text-align: center; border-top: 1px solid #444; background: rgba(0,0,0,0.2); pointer-events: none;">
+      💾 記憶體: <span id="menu-memory-usage">0</span> MB
+    </div>
   </div>
 
   <!-- Modal: Tasks Panel -->
@@ -212,6 +216,10 @@
                 <option value="walk_right">走路-右 (Walk Right)</option>
                 <option value="walk_up">走路-上 (Walk Up)</option>
                 <option value="walk_down">走路-下 (Walk Down)</option>
+                <option value="walk_up_left">走路-左上 (Walk Up Left)</option>
+                <option value="walk_up_right">走路-右上 (Walk Up Right)</option>
+                <option value="walk_down_left">走路-左下 (Walk Down Left)</option>
+                <option value="walk_down_right">走路-右下 (Walk Down Right)</option>
                 <option value="dragging">拖曳 (Drag)</option>
                 <option value="clicked">點擊 (Clicked)</option>
               </select>

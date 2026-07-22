@@ -3,6 +3,14 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 
+// Disable GPU Hardware Acceleration to completely bypass Chromium transparent window memory leaks and DWM bloating!
+app.disableHardwareAcceleration();
+
+// Optimize memory and GPU resource footprint
+app.commandLine.appendSwitch('js-flags', '--max-old-space-size=256'); // Restrict V8 heap size
+app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');       // Disable shader cache to save RAM
+app.commandLine.appendSwitch('disable-http-cache');                  // Disable HTTP cache
+
 // Load local .env file synchronously on startup and populate process.env
 try {
   const envPath = path.join(__dirname, '.env');
@@ -133,6 +141,26 @@ function createWindow() {
     app.quit();
   });
 
+  ipcMain.handle('get-app-memory', () => {
+    try {
+      const metrics = app.getAppMetrics();
+      let totalMemoryKB = 0;
+      for (const m of metrics) {
+        if (m.memory && m.memory.workingSetSize) {
+          totalMemoryKB += m.memory.workingSetSize;
+        }
+      }
+      return Math.round(totalMemoryKB / 1024); // Return in MB
+    } catch (e) {
+      return 0;
+    }
+  });
+
+  ipcMain.on('relaunch-app', () => {
+    app.relaunch();
+    app.exit(0);
+  });
+
   // Position control from renderer with input validation
   ipcMain.on('set-window-position', (event, x, y) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -147,14 +175,20 @@ function createWindow() {
   ipcMain.handle('get-window-bounds', () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       const bounds = mainWindow.getBounds();
-      const primaryDisplay = screen.getPrimaryDisplay();
+      const display = screen.getDisplayMatching(bounds);
       return {
         x: bounds.x,
         y: bounds.y,
         width: bounds.width,
         height: bounds.height,
-        screenWidth: primaryDisplay.workAreaSize.width,
-        screenHeight: primaryDisplay.workAreaSize.height
+        screenWidth: display.bounds.width,
+        screenHeight: display.bounds.height,
+        displayX: display.bounds.x,
+        displayY: display.bounds.y,
+        workX: display.workArea.x,
+        workY: display.workArea.y,
+        workWidth: display.workArea.width,
+        workHeight: display.workArea.height
       };
     }
     return null;
