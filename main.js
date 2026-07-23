@@ -82,7 +82,7 @@ function createWindow() {
       resizable: false,
       movable: false,
       hasShadow: false,
-      focusable: false, // Prevents OS borders/shadows when unfocused
+      focusable: true, // Allow focus to capture blur events when clicking other windows/displays
       skipTaskbar: true, // Don't show in Windows taskbar for stealth look
       show: false, // Prevents black flashes
       backgroundColor: '#00000000', // Explicit transparent background
