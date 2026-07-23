@@ -20,6 +20,9 @@
     </div>
   </div>
 
+  <!-- Custom Context Menu Overlay (Right Click backdrop) -->
+  <div id="menu-overlay" class="hidden" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 9998; background: transparent;"></div>
+
   <!-- Custom Context Menu (Right Click) -->
   <div id="context-menu" class="hidden">
     <div class="menu-header">魔法小貓選單</div>
@@ -27,6 +30,8 @@
     <div class="menu-item" id="menu-library">收藏庫</div>
     <div class="menu-item" id="menu-media-player">影音播放器</div>
     <div class="menu-item" id="menu-settings">警告閥值設定</div>
+    <div class="menu-item" id="menu-toggle-dialogue" style="color: #55efc4;">關閉對話框</div>
+    <div class="menu-item" id="menu-toggle-fontsize" style="color: #fdcb6e;">字體大小: 中</div>
     <div class="menu-item" id="menu-admin">開發者模式</div>
     <div class="menu-item" id="menu-relaunch" style="color: #FFEAA7;">重新啟動軟體</div>
     <hr>
@@ -185,6 +190,10 @@
           <label>記憶體警告閥值: <strong id="mem-val">85</strong>%</label>
           <input type="range" id="mem-slider" min="10" max="100" step="5" value="85">
           <p class="settings-hint">當記憶體使用率超過此百分比時，小貓會彈出清理提示。</p>
+        </div>
+        <div class="settings-group" style="margin-top: 15px; display: flex; align-items: center; justify-content: space-between;">
+          <label style="margin-bottom: 0;">🐾 允許小貓在螢幕上自由走動</label>
+          <input type="checkbox" id="walk-toggle" style="width: 18px; height: 18px; cursor: pointer;">
         </div>
         <div style="margin-top: 20px; display: flex; justify-content: center;">
           <button id="save-settings-btn" class="task-btn">儲存設定</button>

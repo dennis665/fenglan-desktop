@@ -8,6 +8,7 @@ let userEnergy = parseInt(localStorage.getItem('mascot_energy')) || 0;
 let lastLoginDate = localStorage.getItem('mascot_last_login') || '';
 let cpuThreshold = parseInt(localStorage.getItem('mascot_cpu_threshold')) || 80;
 let memThreshold = parseInt(localStorage.getItem('mascot_mem_threshold')) || 85;
+let allowWalking = localStorage.getItem('mascot_allow_walking') !== 'false';
 
 // Resolve project directory synchronously
 let rawPath = window.location.pathname;
@@ -213,9 +214,27 @@ let dailyProgress = JSON.parse(localStorage.getItem('mascot_daily_progress')) ||
   musicClaimed: false
 };
 
+// Screen Index parsed from URL query parameters
+const urlParams = new URLSearchParams(window.location.search);
+const screenIndex = parseInt(urlParams.get('screenIndex')) || 0;
+
 // Mascot Position & AI Variables
-let windowX = 0;
-let windowY = 0;
+let windowX = parseInt(localStorage.getItem(`mascot_pos_x_${screenIndex}`)) || 500;
+let windowY = parseInt(localStorage.getItem(`mascot_pos_y_${screenIndex}`)) || 500;
+let allowDialogue = localStorage.getItem(`mascot_allow_dialogue_${screenIndex}`) !== 'false';
+let mascotScale = parseFloat(localStorage.getItem(`mascot_scale_${screenIndex}`)) || 1.0;
+let mascotFontSizeIdx = parseInt(localStorage.getItem(`mascot_fontsize_idx_${screenIndex}`)) || 1; // Default to index 1 (Medium)
+const fontSizes = [13, 17, 21];
+const fontSizeNames = ['小', '中', '大'];
+
+function applyFontSize() {
+  const size = fontSizes[mascotFontSizeIdx];
+  document.documentElement.style.setProperty('--mascot-font-size', `${size}px`);
+  const btn = document.getElementById('menu-toggle-fontsize');
+  if (btn) {
+    btn.innerText = `字體大小: ${fontSizeNames[mascotFontSizeIdx]}`;
+  }
+}
 let screenWidth = 1920;
 let screenHeight = 1080;
 const windowWidth = 450;
@@ -225,6 +244,21 @@ let displayX = 0;
 let displayY = 0;
 let workWidth = 1920;
 let workHeight = 1080;
+
+let virtualDesktopMinX = 0;
+let virtualDesktopMinY = 0;
+let virtualWidth = 1920;
+let virtualHeight = 1080;
+
+function updateMascotDOMPosition() {
+  const htmlX = windowX - virtualDesktopMinX;
+  const htmlY = windowY - virtualDesktopMinY;
+  mascotContainer.style.left = `${htmlX}px`;
+  mascotContainer.style.top = `${htmlY}px`;
+  
+  localStorage.setItem(`mascot_pos_x_${screenIndex}`, windowX);
+  localStorage.setItem(`mascot_pos_y_${screenIndex}`, windowY);
+}
 
 let isWalking = false;
 let walkDirection = 'right'; // 'right', 'left', 'up', 'down'
@@ -263,6 +297,7 @@ let audioCtx = null;
 let synthInterval = null;
 let currentTrack = null;
 let isPlaying = false;
+let isAudioSilent = false;
 let playTimeTimer = null;
 let audioSourceNode = null;
 let analyserNode = null;
@@ -390,7 +425,16 @@ function startVisualizerAnimation() {
     }
     
     visualizerAnimationId = requestAnimationFrame(draw);
-    analyserNode.getByteFrequencyData(dataArray);
+    if (isAudioSilent) {
+      // Generate synthetic frequency data (dancing waves!) for the silent visualizer side
+      const time = Date.now() / 200;
+      for (let i = 0; i < bufferLength; i++) {
+        const val = 40 + Math.sin(i * 0.1 + time) * 30 + Math.cos(i * 0.05 - time * 0.5) * 20 + Math.random() * 10;
+        dataArray[i] = Math.max(0, Math.min(255, val));
+      }
+    } else {
+      analyserNode.getByteFrequencyData(dataArray);
+    }
     
     // Draw semi-transparent background for neon glow motion trails!
     canvasCtx.fillStyle = 'rgba(0, 0, 0, 0.25)';
@@ -438,7 +482,7 @@ function getPlaylist() {
   return list;
 }
 
-function playTrack(trackId) {
+function playTrack(trackId, isRemote = false) {
   const playlist = getPlaylist();
   if (playlist.length === 0) {
     showDialogue("📭 播放清單目前是空的，請先點選「上傳影音」上傳您的影片或音樂檔案！");
@@ -449,11 +493,12 @@ function playTrack(trackId) {
   const track = playlist.find(t => t.id === targetId) || playlist[0];
   if (!track) return;
   
-  stopAllPlayback();
+  stopAllPlayback(true);
   
-  currentTrackId = trackId;
-  localStorage.setItem('mascot_current_track_id', trackId);
+  currentTrackId = targetId;
+  localStorage.setItem('mascot_current_track_id', targetId);
   isPlaying = true;
+  isAudioSilent = isRemote;
   
   document.getElementById('playing-title').innerText = track.name;
   document.getElementById('player-play').innerText = "⏸";
@@ -463,14 +508,12 @@ function playTrack(trackId) {
   if (track.type === 'synth') {
     document.getElementById('media-visualizer-placeholder').style.display = 'flex';
     document.getElementById('media-video-player').style.display = 'none';
-    startChiptune(track.trackIdx);
+    if (!isAudioSilent) {
+      startChiptune(track.trackIdx);
+    }
     startVisualizerAnimation();
   } else {
     // Custom audio/video playing via HTML5 video element
-    videoPlayer.src = track.path;
-    videoPlayer.volume = mediaVolume;
-    videoPlayer.load();
-    
     if (track.type === 'video') {
       document.getElementById('media-visualizer-placeholder').style.display = 'none';
       document.getElementById('media-video-player').style.display = 'block';
@@ -480,17 +523,32 @@ function playTrack(trackId) {
       startVisualizerAnimation();
     }
     
-    videoPlayer.play().catch(e => {
-      console.error("Playback failed:", e);
-    });
-    
-    startTaskTimer();
-    showDialogue(`▶ 正在播放 ${track.name}`);
+    if (!isAudioSilent) {
+      videoPlayer.src = track.path;
+      videoPlayer.volume = mediaVolume;
+      videoPlayer.load();
+      videoPlayer.play().catch(e => {
+        console.error("Playback failed:", e);
+      });
+      startTaskTimer();
+      showDialogue(`▶ 正在播放 ${track.name}`);
+    } else {
+      showDialogue(`🎵 正在同步播放 ${track.name} (另一螢幕輸出音源)`);
+    }
+  }
+
+  // Broadcast to other windows to play silently
+  if (!isRemote) {
+    ipcRenderer.send('broadcast-ipc', 'sync-audio-play', targetId);
   }
 }
 
-function stopAllPlayback() {
+function stopAllPlayback(keepSilentFlag = false) {
+  const wasPlaying = isPlaying;
   isPlaying = false;
+  if (!keepSilentFlag) {
+    isAudioSilent = false;
+  }
   stopChiptune();
   
   if (visualizerAnimationId) {
@@ -516,6 +574,11 @@ function stopAllPlayback() {
   
   document.getElementById('player-play').innerText = "▶";
   document.getElementById('playing-title').innerText = "無";
+
+  // Broadcast stop to other windows if triggered locally
+  if (wasPlaying && !keepSilentFlag && !isAudioSilent) {
+    ipcRenderer.send('broadcast-ipc', 'sync-audio-stop');
+  }
 }
 
 function startTaskTimer() {
@@ -752,7 +815,7 @@ function registerMouseIgnore() {
   window.addEventListener('mousemove', (e) => {
     // If context menu is open, capture all mouse events to allow clicking anywhere to dismiss it!
     if (!contextMenu.classList.contains('hidden')) {
-      ipcRenderer.send('set-ignore-mouse', false, { forward: true });
+      ipcRenderer.send('set-ignore-mouse', false, { forward: false });
       return;
     }
 
@@ -775,6 +838,7 @@ function registerMouseIgnore() {
 
 // --- Character Dialogue Engine ---
 function showDialogue(text, duration = 4000) {
+  if (!allowDialogue) return;
   if (dialogueTimeout) clearTimeout(dialogueTimeout);
   if (typewriterInterval) clearInterval(typewriterInterval);
   
@@ -901,16 +965,31 @@ function setMascotState(state) {
 
 // Fetch position and set bounds on load
 async function syncWindowPosition() {
-  const bounds = await ipcRenderer.invoke('get-window-bounds');
+  const bounds = await ipcRenderer.invoke('get-window-bounds', windowX, windowY);
   if (bounds) {
-    windowX = bounds.x;
-    windowY = bounds.y;
+    virtualDesktopMinX = bounds.x !== undefined ? bounds.x : 0;
+    virtualDesktopMinY = bounds.y !== undefined ? bounds.y : 0;
+    virtualWidth = bounds.width !== undefined ? bounds.width : bounds.screenWidth;
+    virtualHeight = bounds.height !== undefined ? bounds.height : bounds.screenHeight;
     screenWidth = bounds.screenWidth;
     screenHeight = bounds.screenHeight;
     displayX = bounds.displayX !== undefined ? bounds.displayX : 0;
     displayY = bounds.displayY !== undefined ? bounds.displayY : 0;
     workWidth = bounds.workWidth !== undefined ? bounds.workWidth : bounds.screenWidth;
     workHeight = bounds.workHeight !== undefined ? bounds.workHeight : bounds.screenHeight;
+    
+    // Clamp mascot coordinates to currently matched display
+    const minMascotX = displayX + 10;
+    const maxMascotX = displayX + workWidth - windowWidth - 10;
+    const minMascotY = displayY + 10;
+    const maxMascotY = displayY + workHeight - windowHeight - 10;
+    
+    if (windowX < minMascotX || windowX > maxMascotX || windowY < minMascotY || windowY > maxMascotY) {
+      windowX = displayX + workWidth - windowWidth - 50;
+      windowY = displayY + workHeight - windowHeight - 10;
+    }
+    
+    updateMascotDOMPosition();
   }
 }
 
@@ -927,16 +1006,27 @@ function initDragAndDrop() {
     setMascotState('dragging');
     showDialogue("放開我啦喵！><");
     
-    ipcRenderer.send('drag-start', e.clientX, e.clientY);
+    // Calculate drag offset relative to the mascot container top-left inside virtual desktop space
+    const dragOffsetX = e.clientX - (windowX - virtualDesktopMinX);
+    const dragOffsetY = e.clientY - (windowY - virtualDesktopMinY);
     
-    let lastDragTime = 0;
-    const onMouseMove = () => {
+    const onMouseMove = (moveEvent) => {
       if (!isDragging) return;
-      const now = performance.now();
-      if (now - lastDragTime >= 16) { // Limit drag updates to ~60 FPS
-        ipcRenderer.send('drag-move');
-        lastDragTime = now;
-      }
+      
+      // Calculate new virtual screen coordinates of the mascot
+      windowX = moveEvent.clientX - dragOffsetX + virtualDesktopMinX;
+      windowY = moveEvent.clientY - dragOffsetY + virtualDesktopMinY;
+      
+      // Keep within monitor display boundaries (using currently matched monitor)
+      const minMascotX = displayX + 10;
+      const maxMascotX = displayX + workWidth - windowWidth - 10;
+      const minMascotY = displayY + 10;
+      const maxMascotY = displayY + workHeight - windowHeight - 10;
+      
+      windowX = Math.max(minMascotX, Math.min(windowX, maxMascotX));
+      windowY = Math.max(minMascotY, Math.min(windowY, maxMascotY));
+      
+      updateMascotDOMPosition();
     };
     
     const onMouseUp = async () => {
@@ -944,7 +1034,7 @@ function initDragAndDrop() {
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
       
-      // Update local position
+      // Update matched display boundary settings relative to cursor location
       await syncWindowPosition();
       
       // Start falling back to bottom of screen (gravity simulation!)
@@ -966,38 +1056,6 @@ function initDragAndDrop() {
     
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
-  });
-
-  // Allow clicking and dragging anywhere on the dark modal background overlay to move the window
-  let isOverlayDragging = false;
-  document.querySelectorAll('.modal').forEach(modal => {
-    modal.addEventListener('mousedown', (e) => {
-      if (e.button !== 0) return; // Only left click
-      if (e.target === modal) { // Make sure click is on background overlay itself, not modal-content card
-        isOverlayDragging = true;
-        ipcRenderer.send('drag-start', e.clientX, e.clientY);
-        
-        let lastDragTime = 0;
-        const onMouseMove = () => {
-          if (!isOverlayDragging) return;
-          const now = performance.now();
-          if (now - lastDragTime >= 16) { // limit drag updates to ~60 FPS
-            ipcRenderer.send('drag-move');
-            lastDragTime = now;
-          }
-        };
-        
-        const onMouseUp = async () => {
-          isOverlayDragging = false;
-          window.removeEventListener('mousemove', onMouseMove);
-          window.removeEventListener('mouseup', onMouseUp);
-          await syncWindowPosition();
-        };
-        
-        window.addEventListener('mousemove', onMouseMove);
-        window.addEventListener('mouseup', onMouseUp);
-      }
-    });
   });
 }
 
@@ -1022,7 +1080,7 @@ function gravityFallLoop() {
         }
       }, 1000);
     }
-    ipcRenderer.send('set-window-position', windowX, windowY);
+    updateMascotDOMPosition();
     if (isFalling) {
       requestAnimationFrame(gravityFallLoop);
     }
@@ -1039,6 +1097,7 @@ function isAnyModalOpen() {
 }
 
 async function startWalkingAI() {
+  if (!allowWalking) return; // Stop walking if user disabled free-roaming
   if (isDragging || isFalling || isWalking) return;
   if (isAnyModalOpen()) return; // Stop walking AI if any setting modal is open
   if (contextMenu && !contextMenu.classList.contains('hidden')) return; // Stop if menu is open
@@ -1197,17 +1256,10 @@ function walkLoop() {
     }
   }
   
-  // Throttle window position updates to ~30 FPS
-  const now = performance.now();
-  if (now - lastWindowMoveTime >= 33) {
-    ipcRenderer.send('set-window-position', windowX, windowY);
-    lastWindowMoveTime = now;
-  }
+  updateMascotDOMPosition();
   
   // Check segment completion
   if (walkStepsLeft <= 0 || hitBoundary) {
-    // Send final position for alignment
-    ipcRenderer.send('set-window-position', windowX, windowY);
     
     if (walkSegmentsLeft > 0) {
       // Pause briefly (e.g. 300ms) to look around, then start next walk segment!
@@ -1375,8 +1427,60 @@ async function updateMenuMemory() {
   }
 }
 
+function hideContextMenu() {
+  contextMenu.classList.add('hidden');
+  const overlay = document.getElementById('menu-overlay');
+  if (overlay) overlay.classList.add('hidden');
+  if (menuMemoryInterval) {
+    clearInterval(menuMemoryInterval);
+    menuMemoryInterval = null;
+  }
+}
+
 // --- Menu & Modals Event listeners ---
 function initUIEvents() {
+  // Dialogue Toggle Context Menu Option Listener
+  const dialogueToggleBtn = document.getElementById('menu-toggle-dialogue');
+  if (dialogueToggleBtn) {
+    dialogueToggleBtn.innerText = allowDialogue ? "關閉對話框" : "開啟對話框";
+    dialogueToggleBtn.addEventListener('click', () => {
+      allowDialogue = !allowDialogue;
+      localStorage.setItem(`mascot_allow_dialogue_${screenIndex}`, allowDialogue);
+      dialogueToggleBtn.innerText = allowDialogue ? "關閉對話框" : "開啟對話框";
+      contextMenu.classList.add('hidden');
+      ipcRenderer.send('set-ignore-mouse', true, { forward: true });
+      
+      if (!allowDialogue) {
+        speechBubble.classList.add('hidden');
+      } else {
+        speechBubble.classList.remove('hidden');
+        showDialogue("✨ 對話框已開啟！");
+      }
+      
+      // Resume walking AI after closing the context menu
+      setTimeout(() => { if (!isAnyModalOpen()) startWalkingAI(); }, 100);
+    });
+  }
+
+  // Initialize and apply font size setting on UI initialization
+  applyFontSize();
+
+  const fontToggleBtn = document.getElementById('menu-toggle-fontsize');
+  if (fontToggleBtn) {
+    fontToggleBtn.addEventListener('click', () => {
+      mascotFontSizeIdx = (mascotFontSizeIdx + 1) % fontSizes.length;
+      localStorage.setItem(`mascot_fontsize_idx_${screenIndex}`, mascotFontSizeIdx);
+      applyFontSize();
+      contextMenu.classList.add('hidden');
+      ipcRenderer.send('set-ignore-mouse', true, { forward: true });
+      
+      // Resume walking AI after closing the context menu
+      setTimeout(() => { if (!isAnyModalOpen()) startWalkingAI(); }, 100);
+      
+      showDialogue(`✨ 字體已調整為: ${fontSizeNames[mascotFontSizeIdx]}`);
+    });
+  }
+
   // Hide or show Developer Mode menu option dynamically based on env variable
   const adminMenuItem = document.getElementById('menu-admin');
   if (adminMenuItem) {
@@ -1392,13 +1496,17 @@ function initUIEvents() {
     e.preventDefault();
     contextMenu.classList.remove('hidden');
     
+    // Show transparent overlay to capture outside clicks
+    const overlay = document.getElementById('menu-overlay');
+    if (overlay) overlay.classList.remove('hidden');
+    
     // Force mascot to stop walking immediately and stay still (idle) while menu is open!
     isWalking = false;
     if (walkTimer) clearTimeout(walkTimer);
     setMascotState('idle');
     
     // Disable mouse ignore immediately when menu opens to capture click-away events!
-    ipcRenderer.send('set-ignore-mouse', false, { forward: true });
+    ipcRenderer.send('set-ignore-mouse', false, { forward: false });
     
     // Query and update memory usage immediately, then poll every 1s while menu is open
     updateMenuMemory();
@@ -1406,85 +1514,47 @@ function initUIEvents() {
     menuMemoryInterval = setInterval(updateMenuMemory, 1000);
     
     const menuWidth = contextMenu.offsetWidth || 160;
-    const menuHeight = contextMenu.offsetHeight || 190;
+    const menuHeight = contextMenu.offsetHeight || 220;
     
-    // Mascot center inside 450px width window is 225px
-    // If clicked on left half, place menu on the right. If clicked on right half, place on left.
-    let left = 0;
-    if (e.clientX < 225) {
-      left = 280; // Right of the mascot (spans 280 to 440)
-    } else {
-      left = 10; // Left of the mascot (spans 10 to 170)
+    // Position beside the cursor (5px gap) and keep within screen width bounds
+    let left = e.clientX + 5;
+    if (left + menuWidth > window.innerWidth - 10) {
+      left = e.clientX - menuWidth - 5;
     }
     
-    // Vertical alignment near the cursor height but within window boundaries
-    let top = e.clientY - 20;
-    if (top + menuHeight > 350) {
-      top = 350 - menuHeight - 10;
+    // Keep within screen height bounds
+    let top = e.clientY;
+    if (top + menuHeight > window.innerHeight - 10) {
+      top = window.innerHeight - menuHeight - 10;
     }
     
     contextMenu.style.left = `${Math.max(5, left)}px`;
     contextMenu.style.top = `${Math.max(5, top)}px`;
   });
 
-  window.addEventListener('click', (e) => {
-    if (!contextMenu.contains(e.target)) {
+  // Clicking overlay backdrop (transparent empty space) hides the context menu
+  const menuOverlay = document.getElementById('menu-overlay');
+  if (menuOverlay) {
+    menuOverlay.addEventListener('click', () => {
       const wasVisible = !contextMenu.classList.contains('hidden');
-      contextMenu.classList.add('hidden');
-      
-      if (menuMemoryInterval) {
-        clearInterval(menuMemoryInterval);
-        menuMemoryInterval = null;
-      }
-      
-      // Re-evaluate mouse ignoring immediately based on click target
-      let onInteractive = false;
-      const interactiveElements = [
-        mascotBody,
-        speechBubble,
-        contextMenu,
-        tasksModal,
-        libraryModal,
-        document.getElementById('settings-modal'),
-        document.getElementById('admin-modal'),
-        document.getElementById('media-modal')
-      ];
-      for (const el of interactiveElements) {
-        if (el && !el.classList.contains('hidden')) {
-          const rect = el.getBoundingClientRect();
-          if (e.clientX >= rect.left && e.clientX <= rect.right &&
-              e.clientY >= rect.top && e.clientY <= rect.bottom) {
-            onInteractive = true;
-            break;
-          }
-        }
-      }
-      ipcRenderer.send('set-ignore-mouse', !onInteractive, { forward: true });
-      
+      hideContextMenu();
+      ipcRenderer.send('set-ignore-mouse', true, { forward: true });
       if (wasVisible) {
         setTimeout(() => { if (!isAnyModalOpen()) startWalkingAI(); }, 100);
       }
-    }
-  });
+    });
+  }
 
-  // Clear memory polling when any menu item is clicked
+  // Hide context menu and overlay when menu options are clicked
   contextMenu.addEventListener('click', () => {
-    if (menuMemoryInterval) {
-      clearInterval(menuMemoryInterval);
-      menuMemoryInterval = null;
-    }
+    hideContextMenu();
   });
 
   // Also close context menu when window loses focus (clicked on desktop outside)
   window.addEventListener('blur', () => {
     const wasVisible = !contextMenu.classList.contains('hidden');
-    contextMenu.classList.add('hidden');
+    hideContextMenu();
     ipcRenderer.send('set-ignore-mouse', true, { forward: true });
-    
-    if (menuMemoryInterval) {
-      clearInterval(menuMemoryInterval);
-      menuMemoryInterval = null;
-    }
     
     if (wasVisible) {
       setTimeout(() => { if (!isAnyModalOpen()) startWalkingAI(); }, 100);
@@ -1574,6 +1644,7 @@ function initUIEvents() {
     memSlider.value = memThreshold;
     cpuVal.innerText = cpuThreshold;
     memVal.innerText = memThreshold;
+    document.getElementById('walk-toggle').checked = allowWalking;
     
     isWalking = false;
     if (walkTimer) clearTimeout(walkTimer);
@@ -1598,12 +1669,21 @@ function initUIEvents() {
   document.getElementById('save-settings-btn').addEventListener('click', () => {
     cpuThreshold = parseInt(cpuSlider.value);
     memThreshold = parseInt(memSlider.value);
+    allowWalking = document.getElementById('walk-toggle').checked;
     
     localStorage.setItem('mascot_cpu_threshold', cpuThreshold);
     localStorage.setItem('mascot_mem_threshold', memThreshold);
+    localStorage.setItem('mascot_allow_walking', allowWalking ? 'true' : 'false');
     
     settingsModal.classList.add('hidden');
-    showDialogue(`⚙️ 設定已儲存！CPU閥值: ${cpuThreshold}%, 記憶體閥值: ${memThreshold}%`);
+    
+    if (!allowWalking) {
+      isWalking = false;
+      if (walkTimer) clearTimeout(walkTimer);
+      setMascotState('idle');
+    }
+    
+    showDialogue(`⚙️ 設定已儲存！CPU閥值: ${cpuThreshold}%, 記憶體閥值: ${memThreshold}%, 自由走動: ${allowWalking ? '開啟' : '關閉'}`);
     setTimeout(() => { if (!isAnyModalOpen()) startWalkingAI(); }, 100);
   });
 
@@ -2147,20 +2227,29 @@ function initUIEvents() {
 
 // --- Initialize App ---
 window.addEventListener('DOMContentLoaded', async () => {
+  console.log("DOMContentLoaded started");
+  
+
+
   // Sync screen metrics
   await syncWindowPosition();
+  console.log("syncWindowPosition completed, windowX:", windowX, "windowY:", windowY, "minX:", virtualDesktopMinX, "minY:", virtualDesktopMinY);
   
   // Set default initial state
   setMascotState('idle');
+  console.log("setMascotState completed");
   
   // Register click pass-through
   registerMouseIgnore();
+  console.log("registerMouseIgnore completed");
   
   // Init Drag and Drop
   initDragAndDrop();
+  console.log("initDragAndDrop completed");
   
   // Initialize AI Walk
   startWalkingAI();
+  console.log("startWalkingAI completed");
   
   // UI setup
   initUIEvents();
@@ -2203,6 +2292,40 @@ window.addEventListener('DOMContentLoaded', async () => {
   ipcRenderer.on('system-status', (event, status) => {
     handlePCStatusAlert(status);
   });
+
+  // Listen to audio sync events from other windows
+  ipcRenderer.on('sync-audio-play', (event, trackId) => {
+    playTrack(trackId, true); // play remotely (silently)
+  });
+
+  ipcRenderer.on('sync-audio-stop', () => {
+    stopAllPlayback(false); // stop remotely
+  });
   
+  // Initialize Mouse Wheel Zoom listener on mascotContainer
+  if (mascotContainer) {
+    mascotContainer.style.transformOrigin = 'bottom center';
+    mascotContainer.style.transform = `scale(${mascotScale})`;
+    
+    const mascotBody = document.getElementById('mascot-body');
+    if (mascotBody) {
+      mascotBody.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        
+        // Scroll up (deltaY < 0) -> Zoom In, Scroll down (deltaY > 0) -> Zoom Out
+        if (e.deltaY < 0) {
+          mascotScale = Math.min(2.0, mascotScale + 0.1);
+        } else {
+          mascotScale = Math.max(0.5, mascotScale - 0.1);
+        }
+        
+        mascotContainer.style.transform = `scale(${mascotScale})`;
+        localStorage.setItem(`mascot_scale_${screenIndex}`, mascotScale.toFixed(2));
+        
+        showDialogue(`🔍 體型已調整為 ${Math.round(mascotScale * 100)}%`);
+      }, { passive: false });
+    }
+  }
+
   showDialogue("✨ 召喚完成！魔法小貓與您同在！");
 });
