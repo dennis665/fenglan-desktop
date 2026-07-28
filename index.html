@@ -25,7 +25,7 @@
 
   <!-- Custom Context Menu (Right Click) -->
   <div id="context-menu" class="hidden">
-    <div class="menu-header">魔法小貓選單</div>
+    <div class="menu-header">桌面寵物選單</div>
     <div class="menu-item" id="menu-tasks">日常任務</div>
     <div class="menu-item" id="menu-library">收藏庫</div>
     <div class="menu-item" id="menu-media-player">影音播放器</div>
@@ -45,7 +45,7 @@
   <div id="tasks-modal" class="modal hidden">
     <div class="modal-content">
       <div class="modal-header">
-        <h2>📜 每日魔法任務</h2>
+        <h2>📜 每日任務</h2>
         <span class="close-btn" id="close-tasks">&times;</span>
       </div>
       <div class="modal-body">
@@ -60,7 +60,7 @@
         <div class="task-list">
           <div class="task-item" id="task-login">
             <div class="task-info">
-              <span class="task-title">✨ 每日魔法簽到 (+20 能量)</span>
+              <span class="task-title">✨ 每日簽到 (+20 能量)</span>
               <span class="task-desc">今天首次打開寵物。</span>
             </div>
             <button class="task-btn" id="btn-task-login">簽到</button>
@@ -68,14 +68,14 @@
           <div class="task-item" id="task-click">
             <div class="task-info">
               <span class="task-title">🐾 輕摸互動 5 次 (+10 能量)</span>
-              <span class="task-desc">點擊點戳小貓。進度: <span id="click-count">0</span>/5</span>
+              <span class="task-desc">點擊與寵物互動。進度: <span id="click-count">0</span>/5</span>
             </div>
             <button class="task-btn disabled" id="btn-task-click" disabled>領取</button>
           </div>
           <div class="task-item" id="task-walk">
             <div class="task-info">
               <span class="task-title">🚶 桌面散步 100 步 (+15 能量)</span>
-              <span class="task-desc">讓小貓在桌面活動。進度: <span id="walk-count">0</span>/100</span>
+              <span class="task-desc">讓寵物在桌面漫步。進度: <span id="walk-count">0</span>/100</span>
             </div>
             <button class="task-btn disabled" id="btn-task-walk" disabled>領取</button>
           </div>
@@ -179,15 +179,15 @@
         <div class="settings-group">
           <label>CPU 警告閥值: <strong id="cpu-val">80</strong>%</label>
           <input type="range" id="cpu-slider" min="10" max="100" step="5" value="80">
-          <p class="settings-hint">當 CPU 使用率超過此百分比時，小貓會彈出過載抱怨。</p>
+          <p class="settings-hint">當 CPU 使用率超過此百分比時，寵物會彈出過載抱怨。</p>
         </div>
         <div class="settings-group" style="margin-top: 15px;">
           <label>記憶體警告閥值: <strong id="mem-val">85</strong>%</label>
           <input type="range" id="mem-slider" min="10" max="100" step="5" value="85">
-          <p class="settings-hint">當記憶體使用率超過此百分比時，小貓會彈出清理提示。</p>
+          <p class="settings-hint">當記憶體使用率超過此百分比時，寵物會彈出清理提示。</p>
         </div>
         <div class="settings-group" style="margin-top: 15px; display: flex; align-items: center; justify-content: space-between;">
-          <label style="margin-bottom: 0;">🐾 允許小貓在螢幕上自由走動</label>
+          <label style="margin-bottom: 0;">🐾 允許寵物在螢幕上自由走動</label>
           <input type="checkbox" id="walk-toggle" style="width: 18px; height: 18px; cursor: pointer;">
         </div>
         <div style="margin-top: 20px; display: flex; justify-content: center;">
@@ -250,7 +250,7 @@
             <label>3. 設定動作對話框文字</label>
             <input type="text" id="admin-dialogue-input" placeholder="輸入此動作觸發時的對話文字" style="width: 100%; padding: 6px; background: #2D3436; color: white; border: 1px solid #555; border-radius: 4px; box-sizing: border-box; margin-top: 4px; font-size: 11px;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px;">
-              <span id="admin-dialogue-default-hint" style="font-size: 9px; color: #B2BEC3; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">預設: 哈囉，主人！🐱</span>
+              <span id="admin-dialogue-default-hint" style="font-size: 9px; color: #FFEAA7; max-width: 210px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">目前套用: 哈囉，主人！🐱</span>
               <button id="admin-save-dialogue-btn" class="task-btn" style="padding: 2px 8px; font-size: 9px;">儲存文字</button>
             </div>
           </div>

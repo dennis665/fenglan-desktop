@@ -146,11 +146,11 @@ function renderCharactersList() {
     }
     
     card.innerHTML = `
-      <div style="flex: 1; display: flex; flex-direction: column; gap: 2px; padding: 4px 0;">
+      <div class="char-info-col">
         <div class="char-name">${char.name}</div>
         <div class="char-source">作品: ${char.source || '未分類'}</div>
       </div>
-      <div class="char-status" style="font-size: 10px; color: #FFEAA7;">${currentCharacter === char.id ? '已啟用' : '點擊啟用'}</div>
+      <div class="char-status">${currentCharacter === char.id ? '已啟用' : '點擊啟用'}</div>
     `;
     
     card.addEventListener('click', () => {
@@ -239,6 +239,19 @@ function applyFontSize() {
 function saveCurrentCharacter(charId) {
   currentCharacter = charId;
   localStorage.setItem(`mascot_current_character_${screenIndex}`, charId);
+  updateMenuHeader();
+}
+function updateMenuHeader() {
+  try {
+    const menuHeader = document.querySelector('.menu-header');
+    if (!menuHeader) return;
+    const allChars = getAllCharacters();
+    const charObj = allChars.find(c => c.id === currentCharacter);
+    const charName = charObj ? charObj.name : '桌面寵物';
+    menuHeader.innerText = `${charName}選單`;
+  } catch (e) {
+    console.error("updateMenuHeader error:", e);
+  }
 }
 function logDebug(msg) {
   try {
@@ -1638,6 +1651,7 @@ function initUIEvents() {
   // Right click context menu (position to the side of the mascot to avoid overlapping)
   window.addEventListener('contextmenu', (e) => {
     e.preventDefault();
+    updateMenuHeader();
     contextMenu.classList.remove('hidden');
     
     // Show transparent overlay to capture outside clicks
@@ -2356,6 +2370,7 @@ function triggerActionShowcase(action) {
     }
     
     saveDb('dialogues');
+    updateDialogueUI(selChar, selAction);
     
     // Apply dialogue immediately if current state matches
     if (currentCharacter === selChar && currentMascotState === selAction) {
@@ -2367,8 +2382,11 @@ function triggerActionShowcase(action) {
   function updateDialogueUI(char, action) {
     const key = `${char}_${action}`;
     const defaultText = defaultTexts[action] || "";
-    adminDialogueDefaultHint.innerText = `預設: ${defaultText}`;
-    adminDialogueDefaultHint.title = `預設: ${defaultText}`;
+    const rawDefault = Array.isArray(defaultText) ? defaultText.join(' | ') : defaultText;
+    const appliedText = customDialogues[key] !== undefined ? customDialogues[key] : rawDefault;
+    
+    adminDialogueDefaultHint.innerText = `目前套用: ${appliedText}`;
+    adminDialogueDefaultHint.title = `目前套用: ${appliedText}`;
     
     const customText = customDialogues[key];
     adminDialogueInput.value = customText !== undefined ? customText : "";

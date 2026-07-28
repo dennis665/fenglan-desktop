@@ -300,6 +300,39 @@ hr {
   display: block;
 }
 
+/* Library Modal Expansion & Scrollbar Optimizations */
+#library-modal .modal-content {
+  width: calc(410px * (var(--mascot-font-size, 14px) / 14px));
+  height: calc(360px * (var(--mascot-font-size, 14px) / 14px));
+  max-width: 95vw;
+  max-height: 92vh;
+}
+
+#library-modal .tab-content {
+  max-height: calc(250px * (var(--mascot-font-size, 14px) / 14px));
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+/* Custom Scrollbar for Library Tab Contents */
+#library-modal .tab-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+#library-modal .tab-content::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+}
+
+#library-modal .tab-content::-webkit-scrollbar-thumb {
+  background: #FDCB6E;
+  border-radius: 4px;
+}
+
+#library-modal .tab-content::-webkit-scrollbar-thumb:hover {
+  background: #FFEAA7;
+}
+
 /* Chars Tab */
 .chars-grid {
   display: flex;
@@ -311,13 +344,14 @@ hr {
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 8px;
-  padding: 8px;
+  padding: 10px 12px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  justify-content: space-between;
+  gap: 12px;
   cursor: pointer;
   position: relative;
-  transition: border-color 0.2s;
+  transition: all 0.2s ease;
 }
 
 .char-card:hover:not(.locked) {
@@ -341,23 +375,48 @@ hr {
   border-radius: 50%;
 }
 
+.char-info-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
 .char-name {
   font-weight: bold;
-  color: white;
+  color: #FFFFFF;
+  font-size: 1.05em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .char-source {
-  font-size: 0.75em;
+  font-size: 0.8em;
   color: #B2BEC3;
-  position: absolute;
-  bottom: 6px;
-  left: 54px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  position: static;
 }
 
 .char-status {
   margin-left: auto;
-  font-size: 0.85em;
-  color: #FDCB6E;
+  font-size: 0.8em;
+  font-weight: bold;
+  color: #FFEAA7;
+  padding: 4px 10px;
+  background: rgba(253, 203, 110, 0.15);
+  border: 1px solid rgba(253, 203, 110, 0.3);
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.char-card.active-char .char-status {
+  color: #FF7675;
+  background: rgba(232, 67, 147, 0.2);
+  border-color: #E84393;
 }
 
 .char-card.locked {
