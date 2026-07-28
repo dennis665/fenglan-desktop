@@ -4,7 +4,7 @@
       "id": "cat_def_public_1",
       "title": "公開團隊捷徑",
       "note": "團隊共享檔案與開啟檔 (會提交至 Git)",
-      "collapsed": false,
+      "collapsed": true,
       "items": [
         {
           "id": "item_def_public_1",
