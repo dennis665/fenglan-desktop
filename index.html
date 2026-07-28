@@ -29,6 +29,7 @@
     <div class="menu-item" id="menu-tasks">日常任務</div>
     <div class="menu-item" id="menu-library">收藏庫</div>
     <div class="menu-item" id="menu-media-player">影音播放器</div>
+    <div class="menu-item" id="menu-quick-launch" style="color: #74b9ff;">快捷開啟檔</div>
     <div class="menu-item" id="menu-settings">警告閥值設定</div>
     <div class="menu-item" id="menu-toggle-dialogue" style="color: #55efc4;">關閉對話框</div>
     <div class="menu-item" id="menu-toggle-fontsize" style="color: #fdcb6e;">字體大小: 中</div>
@@ -36,8 +37,9 @@
     <div class="menu-item" id="menu-relaunch" style="color: #FFEAA7;">重新啟動軟體</div>
     <hr>
     <div class="menu-item" id="menu-quit">離開寵物</div>
-    <div class="menu-info" id="menu-memory-usage-item" style="font-size: 9px; color: #95a5a6; padding: 4px 10px; text-align: center; border-top: 1px solid #444; background: rgba(0,0,0,0.2); pointer-events: none;">
-      💾 記憶體: <span id="menu-memory-usage">0</span> MB
+    <div class="menu-info" id="menu-memory-usage-item" style="font-size: 9px; color: #95a5a6; padding: 5px 10px; text-align: center; border-top: 1px solid #444; background: rgba(0,0,0,0.25); pointer-events: none; display: flex; justify-content: space-around;">
+      <span>💾 CPU: <span id="menu-cpu-memory" style="color: #74b9ff; font-weight: bold;">0</span> MB</span>
+      <span>🎮 GPU: <span id="menu-gpu-memory" style="color: #55efc4; font-weight: bold;">0</span> MB</span>
     </div>
   </div>
 
@@ -261,6 +263,84 @@
               <!-- History items will be populated by JS -->
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Quick Launchers Panel (快捷檔案開啟器) -->
+  <div id="quick-launch-modal" class="modal hidden">
+    <div class="modal-content" style="width: 440px; height: 460px;">
+      <div class="modal-header">
+        <h2>快捷檔案開啟器</h2>
+        <span class="close-btn" id="close-quick-launch">&times;</span>
+      </div>
+      <div class="modal-body">
+        <!-- Top Mode Bar & Add Category Button -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">
+          <div style="display: flex; gap: 6px;">
+            <button id="btn-launch-mode-private" class="tab-link active" style="padding: 4px 10px; font-size: 11px;">🔒 私人設定 (不提交Git)</button>
+            <button id="btn-launch-mode-public" class="tab-link" style="padding: 4px 10px; font-size: 11px;">🌐 公開設定 (提交Git)</button>
+          </div>
+          <button id="btn-add-category" class="task-btn" style="padding: 4px 8px; font-size: 11px;">➕ 新增分類</button>
+        </div>
+
+        <!-- Categories List Accordion Container -->
+        <div id="launch-categories-container" style="display: flex; flex-direction: column; gap: 10px;">
+          <!-- Dynamically populated from JS -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Category Editor (新增/編輯分類) -->
+  <div id="category-editor-modal" class="modal hidden" style="z-index: 10005;">
+    <div class="modal-content" style="width: 320px; height: auto;">
+      <div class="modal-header">
+        <h2 id="cat-editor-title">➕ 新增分類</h2>
+        <span class="close-btn" id="close-cat-editor">&times;</span>
+      </div>
+      <div class="modal-body" style="display: flex; flex-direction: column; gap: 10px;">
+        <div class="settings-group">
+          <label>分類標題</label>
+          <input type="text" id="cat-input-title" placeholder="輸入分類名稱 (e.g. 工作工具)" style="width: 100%; padding: 6px; background: #2D3436; color: white; border: 1px solid #555; border-radius: 4px; box-sizing: border-box; font-size: 11px;">
+        </div>
+        <div class="settings-group">
+          <label>內容備註</label>
+          <input type="text" id="cat-input-note" placeholder="輸入備註 (e.g. 開發環境與腳本)" style="width: 100%; padding: 6px; background: #2D3436; color: white; border: 1px solid #555; border-radius: 4px; box-sizing: border-box; font-size: 11px;">
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px;">
+          <button id="cat-btn-save" class="task-btn">儲存分類</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Item Editor (新增/編輯捷徑開啟檔) -->
+  <div id="item-editor-modal" class="modal hidden" style="z-index: 10006;">
+    <div class="modal-content" style="width: 350px; height: auto;">
+      <div class="modal-header">
+        <h2 id="item-editor-title">➕ 新增捷徑項目</h2>
+        <span class="close-btn" id="close-item-editor">&times;</span>
+      </div>
+      <div class="modal-body" style="display: flex; flex-direction: column; gap: 10px;">
+        <div class="settings-group">
+          <label>項目標題</label>
+          <input type="text" id="item-input-title" placeholder="輸入項目名稱 (e.g. 啟動 VSCode)" style="width: 100%; padding: 6px; background: #2D3436; color: white; border: 1px solid #555; border-radius: 4px; box-sizing: border-box; font-size: 11px;">
+        </div>
+        <div class="settings-group">
+          <label>檔案路徑或 URL</label>
+          <div style="display: flex; gap: 6px;">
+            <input type="text" id="item-input-path" placeholder="e.g. C:\Program Files\App.exe 或 https://..." style="flex: 1; padding: 6px; background: #2D3436; color: white; border: 1px solid #555; border-radius: 4px; box-sizing: border-box; font-size: 11px;">
+            <button id="item-btn-browse" class="task-btn" style="padding: 4px 8px; font-size: 10px;">📂 瀏覽</button>
+          </div>
+        </div>
+        <div class="settings-group">
+          <label>內容備註</label>
+          <input type="text" id="item-input-note" placeholder="輸入備註 (e.g. 啟動專案編輯器)" style="width: 100%; padding: 6px; background: #2D3436; color: white; border: 1px solid #555; border-radius: 4px; box-sizing: border-box; font-size: 11px;">
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px;">
+          <button id="item-btn-save" class="task-btn">儲存項目</button>
         </div>
       </div>
     </div>

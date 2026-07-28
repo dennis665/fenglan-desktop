@@ -333,6 +333,7 @@ const contextMenu = document.getElementById('context-menu');
 // Modals
 const tasksModal = document.getElementById('tasks-modal');
 const libraryModal = document.getElementById('library-modal');
+const quickLaunchModal = document.getElementById('quick-launch-modal');
 
 // --- Audio Synthesizer (Chiptune 8-Bit) ---
 let audioCtx = null;
@@ -868,7 +869,10 @@ function checkMouseHover(clientX, clientY) {
     libraryModal,
     document.getElementById('settings-modal'),
     document.getElementById('admin-modal'),
-    document.getElementById('media-modal')
+    document.getElementById('media-modal'),
+    document.getElementById('quick-launch-modal'),
+    document.getElementById('category-editor-modal'),
+    document.getElementById('item-editor-modal')
   ];
 
   let onInteractive = false;
@@ -1574,10 +1578,16 @@ function updateLocks() {
 // Dynamic memory update helper
 async function updateMenuMemory() {
   try {
-    const memMB = await ipcRenderer.invoke('get-app-memory');
-    const memSpan = document.getElementById('menu-memory-usage');
-    if (memSpan) {
-      memSpan.innerText = memMB;
+    const memData = await ipcRenderer.invoke('get-app-memory');
+    const cpuSpan = document.getElementById('menu-cpu-memory');
+    const gpuSpan = document.getElementById('menu-gpu-memory');
+    const oldMemSpan = document.getElementById('menu-memory-usage');
+    
+    if (memData && typeof memData === 'object') {
+      if (cpuSpan) cpuSpan.innerText = memData.cpuMB;
+      if (gpuSpan) gpuSpan.innerText = memData.gpuMB;
+    } else if (oldMemSpan) {
+      oldMemSpan.innerText = memData;
     }
   } catch (e) {
     console.error("Failed to fetch memory:", e);
@@ -1788,6 +1798,27 @@ function initUIEvents() {
     menuLibraryBtn.addEventListener('click', () => {
       if (libraryModal) libraryModal.classList.remove('hidden');
       contextMenu.classList.add('hidden');
+      
+      // Always reset to 'tab-chars' (角色切換) as default tab on open
+      if (libraryModal) {
+        const tabLinks = libraryModal.querySelectorAll('.tab-link');
+        const tabContents = libraryModal.querySelectorAll('.tab-content');
+        tabLinks.forEach(btn => {
+          if (btn.getAttribute('data-tab') === 'tab-chars') {
+            btn.classList.add('active');
+          } else {
+            btn.classList.remove('active');
+          }
+        });
+        tabContents.forEach(content => {
+          if (content.id === 'tab-chars') {
+            content.classList.add('active-content');
+          } else {
+            content.classList.remove('active-content');
+          }
+        });
+      }
+
       updateLocks();
       renderCharactersList(); // update dynamic character list!
       isWalking = false;
@@ -1907,6 +1938,186 @@ function initUIEvents() {
       const mediaModal = document.getElementById('media-modal');
       if (mediaModal) mediaModal.classList.add('hidden');
       setTimeout(() => { if (!isAnyModalOpen()) startWalkingAI(); }, 100);
+    });
+  }
+
+  // Show Quick Launchers Modal
+  const menuQuickLaunchBtn = document.getElementById('menu-quick-launch');
+  if (menuQuickLaunchBtn) {
+    menuQuickLaunchBtn.addEventListener('click', (e) => {
+      if (e) e.stopPropagation();
+      hideContextMenu();
+      
+      const modal = document.getElementById('quick-launch-modal') || quickLaunchModal;
+      if (modal) {
+        modal.classList.remove('hidden');
+      }
+      
+      ipcRenderer.send('set-ignore-mouse', false, { forward: false });
+      
+      isWalking = false;
+      if (walkTimer) clearTimeout(walkTimer);
+      setMascotState('idle');
+
+      try {
+        loadLaunchersData();
+        renderQuickLaunchUI();
+      } catch (err) {
+        console.error("Failed to load launchers UI:", err);
+      }
+    });
+  }
+
+  const closeQuickLaunchBtn = document.getElementById('close-quick-launch');
+  if (closeQuickLaunchBtn) {
+    closeQuickLaunchBtn.addEventListener('click', (e) => {
+      if (e) e.stopPropagation();
+      const modal = document.getElementById('quick-launch-modal') || quickLaunchModal;
+      if (modal) modal.classList.add('hidden');
+      setTimeout(() => { if (!isAnyModalOpen()) startWalkingAI(); }, 100);
+    });
+  }
+
+  // Quick Launcher Mode Buttons (Private vs Public)
+  const btnLaunchPrivate = document.getElementById('btn-launch-mode-private');
+  const btnLaunchPublic = document.getElementById('btn-launch-mode-public');
+
+  if (btnLaunchPrivate && btnLaunchPublic) {
+    btnLaunchPrivate.addEventListener('click', () => {
+      currentLaunchMode = 'private';
+      btnLaunchPrivate.classList.add('active');
+      btnLaunchPublic.classList.remove('active');
+      renderQuickLaunchUI();
+    });
+
+    btnLaunchPublic.addEventListener('click', () => {
+      currentLaunchMode = 'public';
+      btnLaunchPublic.classList.add('active');
+      btnLaunchPrivate.classList.remove('active');
+      renderQuickLaunchUI();
+    });
+  }
+
+  // Add Category Trigger & Modals
+  const btnAddCategory = document.getElementById('btn-add-category');
+  if (btnAddCategory) {
+    btnAddCategory.addEventListener('click', () => {
+      openCategoryEditor(null);
+    });
+  }
+
+  const closeCatEditorBtn = document.getElementById('close-cat-editor');
+  if (closeCatEditorBtn) {
+    closeCatEditorBtn.addEventListener('click', () => {
+      const modal = document.getElementById('category-editor-modal');
+      if (modal) modal.classList.add('hidden');
+    });
+  }
+
+  const catSaveBtn = document.getElementById('cat-btn-save');
+  if (catSaveBtn) {
+    catSaveBtn.addEventListener('click', () => {
+      const titleInput = document.getElementById('cat-input-title');
+      const noteInput = document.getElementById('cat-input-note');
+      const titleVal = titleInput ? titleInput.value.trim() : '';
+      const noteVal = noteInput ? noteInput.value.trim() : '';
+
+      if (!titleVal) {
+        showDialogue("⚠️ 請輸入分類標題！");
+        return;
+      }
+
+      const modeData = launcherData[currentLaunchMode];
+      if (editingCatId) {
+        const cat = modeData.categories.find(c => c.id === editingCatId);
+        if (cat) {
+          cat.title = titleVal;
+          cat.note = noteVal;
+        }
+      } else {
+        modeData.categories.push({
+          id: `cat_${Date.now()}`,
+          title: titleVal,
+          note: noteVal,
+          items: []
+        });
+      }
+
+      saveLaunchersData(currentLaunchMode);
+      const modal = document.getElementById('category-editor-modal');
+      if (modal) modal.classList.add('hidden');
+      renderQuickLaunchUI();
+      showDialogue(`✅ 已儲存分類：${titleVal}`);
+    });
+  }
+
+  // Item Editor Triggers
+  const closeItemEditorBtn = document.getElementById('close-item-editor');
+  if (closeItemEditorBtn) {
+    closeItemEditorBtn.addEventListener('click', () => {
+      const modal = document.getElementById('item-editor-modal');
+      if (modal) modal.classList.add('hidden');
+    });
+  }
+
+  const itemBrowseBtn = document.getElementById('item-btn-browse');
+  if (itemBrowseBtn) {
+    itemBrowseBtn.addEventListener('click', async () => {
+      const filePath = await ipcRenderer.invoke('show-launch-file-dialog');
+      if (filePath) {
+        const pathInput = document.getElementById('item-input-path');
+        if (pathInput) pathInput.value = filePath;
+      }
+    });
+  }
+
+  const itemSaveBtn = document.getElementById('item-btn-save');
+  if (itemSaveBtn) {
+    itemSaveBtn.addEventListener('click', () => {
+      const titleInput = document.getElementById('item-input-title');
+      const pathInput = document.getElementById('item-input-path');
+      const noteInput = document.getElementById('item-input-note');
+
+      const titleVal = titleInput ? titleInput.value.trim() : '';
+      const pathVal = pathInput ? pathInput.value.trim() : '';
+      const noteVal = noteInput ? noteInput.value.trim() : '';
+
+      if (!titleVal) {
+        showDialogue("⚠️ 請輸入項目名稱！");
+        return;
+      }
+      if (!pathVal) {
+        showDialogue("⚠️ 請輸入或瀏覽選擇檔案路徑！");
+        return;
+      }
+
+      const modeData = launcherData[currentLaunchMode];
+      const cat = modeData.categories.find(c => c.id === editingItemCatId);
+      if (!cat) return;
+
+      if (!cat.items) cat.items = [];
+
+      if (editingItemId) {
+        const item = cat.items.find(i => i.id === editingItemId);
+        if (item) {
+          item.title = titleVal;
+          item.path = pathVal;
+          item.note = noteVal;
+        }
+      } else {
+        cat.items.push({
+          id: `item_${Date.now()}`,
+          title: titleVal,
+          path: pathVal,
+          note: noteVal
+        });
+      }
+
+      saveLaunchersData(currentLaunchMode);
+      const modal = document.getElementById('item-editor-modal');
+      if (modal) modal.classList.add('hidden');
+      renderQuickLaunchUI();
+      showDialogue(`✅ 已儲存快捷項目：${titleVal}`);
     });
   }
 
@@ -2529,6 +2740,450 @@ function triggerActionShowcase(action) {
     });
     renderActionsTab();
   }
+
+// --- Quick Launcher Module (快捷檔案開啟器) ---
+let currentLaunchMode = 'private'; // 'private' or 'public'
+let launcherData = {
+  private: { categories: [] },
+  public: { categories: [] }
+};
+let editingCatId = null;
+let editingItemCatId = null;
+let editingItemId = null;
+
+let draggedCatIndex = null;
+let draggedItemCatId = null;
+let draggedItemIndex = null;
+
+function getLaunchersFilePath(mode) {
+  let projectDir = "";
+  try {
+    let rawPath = window.location.pathname;
+    if (rawPath.startsWith('/') && rawPath.charAt(2) === ':') {
+      rawPath = rawPath.substring(1);
+    }
+    const htmlPath = decodeURIComponent(rawPath);
+    const lastSlash = Math.max(htmlPath.lastIndexOf('/'), htmlPath.lastIndexOf('\\'));
+    projectDir = htmlPath.substring(0, lastSlash);
+  } catch (e) {
+    console.error("getLaunchersFilePath path error:", e);
+  }
+  const fileName = mode === 'private' ? 'private_launchers.json' : 'public_launchers.json';
+  return path.join(projectDir || '.', 'assets', fileName);
+}
+
+function loadLaunchersData() {
+  ['private', 'public'].forEach(mode => {
+    const filePath = getLaunchersFilePath(mode);
+    try {
+      if (fs.existsSync(filePath)) {
+        const raw = fs.readFileSync(filePath, 'utf8');
+        launcherData[mode] = JSON.parse(raw);
+      } else {
+        launcherData[mode] = {
+          categories: [
+            {
+              id: `cat_def_${mode}_1`,
+              title: mode === 'private' ? '🔒 個人常用捷徑' : '🌐 公開團隊捷徑',
+              note: mode === 'private' ? '個人開發工具或程式 (不推至 Git)' : '團隊共享檔案與開啟檔 (會提交至 Git)',
+              items: [
+                {
+                  id: `item_def_${mode}_1`,
+                  title: '開啟記事本 (Notepad)',
+                  path: 'notepad.exe',
+                  note: '點擊執行開啟 Windows 記事本'
+                }
+              ]
+            }
+          ]
+        };
+        saveLaunchersData(mode);
+      }
+    } catch (e) {
+      console.error(`Failed to load ${mode} launchers data:`, e);
+      launcherData[mode] = { categories: [] };
+    }
+  });
+}
+
+function saveLaunchersData(mode) {
+  const filePath = getLaunchersFilePath(mode);
+  try {
+    const targetDir = path.dirname(filePath);
+    if (!fs.existsSync(targetDir)) {
+      fs.mkdirSync(targetDir, { recursive: true });
+    }
+    fs.writeFileSync(filePath, JSON.stringify(launcherData[mode], null, 2), 'utf8');
+  } catch (e) {
+    console.error(`Failed to save ${mode} launchers data:`, e);
+  }
+}
+
+function renderQuickLaunchUI() {
+  const container = document.getElementById('launch-categories-container');
+  if (!container) return;
+  container.innerHTML = '';
+
+  const modeData = launcherData[currentLaunchMode];
+  if (!modeData || !modeData.categories || modeData.categories.length === 0) {
+    container.innerHTML = `<div style="text-align: center; color: #888; padding: 20px; font-size: 11px;">目前尚無 ${currentLaunchMode === 'private' ? '🔒 私人' : '🌐 公開'} 分類，點擊右上角『➕ 新增分類』開始建立！</div>`;
+    return;
+  }
+
+  modeData.categories.forEach((cat, catIdx) => {
+    const catCard = document.createElement('div');
+    catCard.className = 'launch-cat-card';
+    catCard.draggable = true;
+    catCard.title = "按住拖曳可調整分類順序；點擊標題可收合/展開";
+
+    // Category Drag & Drop Events
+    catCard.ondragstart = (e) => {
+      e.stopPropagation();
+      draggedCatIndex = catIdx;
+      catCard.classList.add('dragging');
+    };
+
+    catCard.ondragover = (e) => {
+      e.preventDefault();
+      if (draggedItemCatId !== null) {
+        catCard.classList.add('drag-over');
+      } else if (draggedCatIndex !== null && draggedCatIndex !== catIdx) {
+        catCard.classList.add('drag-over');
+      }
+    };
+
+    catCard.ondragleave = () => {
+      catCard.classList.remove('drag-over');
+    };
+
+    catCard.ondragend = () => {
+      catCard.classList.remove('dragging');
+      catCard.classList.remove('drag-over');
+      draggedCatIndex = null;
+      draggedItemCatId = null;
+      draggedItemIndex = null;
+    };
+
+    catCard.ondrop = (e) => {
+      e.preventDefault();
+      catCard.classList.remove('drag-over');
+
+      if (draggedItemCatId !== null && draggedItemIndex !== null) {
+        // Cross-category item move to category card!
+        const sourceCat = modeData.categories.find(c => c.id === draggedItemCatId);
+        const targetCat = cat;
+        if (sourceCat && targetCat && sourceCat.id !== targetCat.id) {
+          const [moved] = sourceCat.items.splice(draggedItemIndex, 1);
+          if (!targetCat.items) targetCat.items = [];
+          targetCat.items.push(moved);
+          targetCat.collapsed = false; // Auto expand target category
+          saveLaunchersData(currentLaunchMode);
+          renderQuickLaunchUI();
+        }
+        draggedItemCatId = null;
+        draggedItemIndex = null;
+      } else if (draggedCatIndex !== null && draggedCatIndex !== catIdx) {
+        const [moved] = modeData.categories.splice(draggedCatIndex, 1);
+        modeData.categories.splice(catIdx, 0, moved);
+        saveLaunchersData(currentLaunchMode);
+        renderQuickLaunchUI();
+        draggedCatIndex = null;
+      }
+    };
+
+    const header = document.createElement('div');
+    header.className = 'launch-cat-header';
+    header.style.cursor = 'pointer';
+    header.onclick = () => {
+      cat.collapsed = !cat.collapsed;
+      saveLaunchersData(currentLaunchMode);
+      renderQuickLaunchUI();
+    };
+
+    const titleGroup = document.createElement('div');
+    titleGroup.style.flex = '1';
+    titleGroup.style.minWidth = '0';
+
+    const itemCount = cat.items ? cat.items.length : 0;
+    const arrowIcon = cat.collapsed ? '▶' : '▼';
+
+    const titleEl = document.createElement('div');
+    titleEl.className = 'launch-cat-title';
+    titleEl.innerHTML = `<span style="font-size: 10px; color: #888; margin-right: 4px;" title="按住拖曳排序">≡</span> <span style="font-size: 10px; color: #74b9ff; margin-right: 4px;">${arrowIcon}</span> ${currentLaunchMode === 'private' ? '🔒' : '🌐'} ${cat.title} <span style="font-size: 9px; color: #888; margin-left: 6px; font-weight: normal;">(${itemCount}個項目)</span>`;
+
+    const noteEl = document.createElement('div');
+    noteEl.className = 'launch-cat-note';
+    noteEl.innerText = cat.note ? `備註: ${cat.note}` : '無備註';
+
+    titleGroup.appendChild(titleEl);
+    titleGroup.appendChild(noteEl);
+
+    // Category Action Buttons
+    const btnGroup = document.createElement('div');
+    btnGroup.style.display = 'flex';
+    btnGroup.style.gap = '4px';
+    btnGroup.style.alignItems = 'center';
+
+    const addItemBtn = document.createElement('button');
+    addItemBtn.className = 'task-btn';
+    addItemBtn.style.padding = '2px 6px';
+    addItemBtn.style.fontSize = '9px';
+    addItemBtn.innerText = '➕ 項目';
+    addItemBtn.title = '新增快捷開啟檔';
+    addItemBtn.onclick = (e) => {
+      e.stopPropagation();
+      openItemEditor(cat.id, null);
+    };
+
+    const editCatBtn = document.createElement('button');
+    editCatBtn.className = 'task-btn';
+    editCatBtn.style.padding = '2px 6px';
+    editCatBtn.style.fontSize = '9px';
+    editCatBtn.innerText = '✏️';
+    editCatBtn.title = '編輯分類標題與備註';
+    editCatBtn.onclick = (e) => {
+      e.stopPropagation();
+      openCategoryEditor(cat.id);
+    };
+
+    const delCatBtn = document.createElement('button');
+    delCatBtn.className = 'task-btn';
+    delCatBtn.style.padding = '2px 6px';
+    delCatBtn.style.fontSize = '9px';
+    delCatBtn.style.background = '#D63031';
+    delCatBtn.innerText = '🗑️';
+    delCatBtn.title = '刪除此分類';
+    delCatBtn.onclick = (e) => {
+      e.stopPropagation();
+      if (confirm(`確定要刪除分類『${cat.title}』及其包含的所有項目嗎？`)) {
+        modeData.categories = modeData.categories.filter(c => c.id !== cat.id);
+        saveLaunchersData(currentLaunchMode);
+        renderQuickLaunchUI();
+      }
+    };
+
+    btnGroup.appendChild(addItemBtn);
+    btnGroup.appendChild(editCatBtn);
+    btnGroup.appendChild(delCatBtn);
+
+    header.appendChild(titleGroup);
+    header.appendChild(btnGroup);
+
+    // Items list container
+    const catBody = document.createElement('div');
+    catBody.className = 'launch-cat-body';
+    if (cat.collapsed) {
+      catBody.style.display = 'none';
+    }
+
+    if (!cat.items || cat.items.length === 0) {
+      catBody.innerHTML = '<div style="color: #666; font-size: 10px; text-align: center; padding: 4px;">點擊右上角『➕ 項目』新增此分類內的快捷開啟檔</div>';
+    } else {
+      cat.items.forEach((item, itemIdx) => {
+        const itemRow = document.createElement('div');
+        itemRow.className = 'launch-item-row';
+        itemRow.draggable = true;
+        itemRow.title = "按住拖曳可調整順序或跨分類移動項目";
+
+        // Item Drag & Drop Events
+        itemRow.ondragstart = (e) => {
+          e.stopPropagation();
+          draggedItemCatId = cat.id;
+          draggedItemIndex = itemIdx;
+          itemRow.classList.add('dragging');
+        };
+
+        itemRow.ondragover = (e) => {
+          if (draggedItemCatId !== null) {
+            e.preventDefault();
+            e.stopPropagation();
+            itemRow.classList.add('drag-over');
+          }
+        };
+
+        itemRow.ondragleave = (e) => {
+          e.stopPropagation();
+          itemRow.classList.remove('drag-over');
+        };
+
+        itemRow.ondragend = (e) => {
+          e.stopPropagation();
+          itemRow.classList.remove('dragging');
+          itemRow.classList.remove('drag-over');
+          draggedItemCatId = null;
+          draggedItemIndex = null;
+        };
+
+        itemRow.ondrop = (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          itemRow.classList.remove('drag-over');
+
+          if (draggedItemCatId !== null && draggedItemIndex !== null) {
+            const sourceCat = modeData.categories.find(c => c.id === draggedItemCatId);
+            const targetCat = cat;
+            if (sourceCat && targetCat) {
+              if (sourceCat.id === targetCat.id) {
+                // Same category reorder
+                if (draggedItemIndex !== itemIdx) {
+                  const [moved] = sourceCat.items.splice(draggedItemIndex, 1);
+                  sourceCat.items.splice(itemIdx, 0, moved);
+                }
+              } else {
+                // Cross-category move to target item position!
+                const [moved] = sourceCat.items.splice(draggedItemIndex, 1);
+                if (!targetCat.items) targetCat.items = [];
+                targetCat.items.splice(itemIdx, 0, moved);
+                targetCat.collapsed = false; // Auto expand target category
+              }
+              saveLaunchersData(currentLaunchMode);
+              renderQuickLaunchUI();
+            }
+          }
+          draggedItemCatId = null;
+          draggedItemIndex = null;
+        };
+
+        const itemInfo = document.createElement('div');
+        itemInfo.className = 'launch-item-info';
+
+        const itemName = document.createElement('div');
+        itemName.className = 'launch-item-name';
+        itemName.innerHTML = `<span style="font-size: 9px; color: #888; margin-right: 4px;" title="按住拖曳排序">≡</span> ${item.title}`;
+
+        const itemPath = document.createElement('div');
+        itemPath.className = 'launch-item-path';
+        itemPath.innerText = item.path || '未指定路徑';
+
+        const itemNote = document.createElement('div');
+        itemNote.className = 'launch-item-note';
+        itemNote.innerText = item.note ? `備註: ${item.note}` : '';
+
+        itemInfo.appendChild(itemName);
+        itemInfo.appendChild(itemPath);
+        if (item.note) itemInfo.appendChild(itemNote);
+
+        const itemBtnGroup = document.createElement('div');
+        itemBtnGroup.style.display = 'flex';
+        itemBtnGroup.style.gap = '4px';
+        itemBtnGroup.style.alignItems = 'center';
+
+        // EXECUTE BUTTON!
+        const execBtn = document.createElement('button');
+        execBtn.className = 'btn-exec-launch';
+        execBtn.innerText = '▶ 執行';
+        execBtn.onclick = async (e) => {
+          e.stopPropagation();
+          if (!item.path) {
+            showDialogue("⚠️ 請先設定檔案或程式的路徑！");
+            return;
+          }
+          showDialogue(`🚀 正在開啟：${item.title}...`, 2000);
+          const res = await ipcRenderer.invoke('launch-file', item.path);
+          if (res && res.success) {
+            showDialogue(`✨ 成功啟動：${item.title}！`);
+          } else {
+            showDialogue(`⚠️ 無法開啟檔案: ${res ? res.error : '未知錯誤'}`);
+          }
+        };
+
+        const editItemBtn = document.createElement('button');
+        editItemBtn.className = 'task-btn';
+        editItemBtn.style.padding = '2px 5px';
+        editItemBtn.style.fontSize = '9px';
+        editItemBtn.innerText = '✏️';
+        editItemBtn.onclick = (e) => {
+          e.stopPropagation();
+          openItemEditor(cat.id, item.id);
+        };
+
+        const delItemBtn = document.createElement('button');
+        delItemBtn.className = 'task-btn';
+        delItemBtn.style.padding = '2px 5px';
+        delItemBtn.style.fontSize = '9px';
+        delItemBtn.style.background = '#D63031';
+        delItemBtn.innerText = '🗑️';
+        delItemBtn.onclick = (e) => {
+          e.stopPropagation();
+          cat.items = cat.items.filter(i => i.id !== item.id);
+          saveLaunchersData(currentLaunchMode);
+          renderQuickLaunchUI();
+        };
+
+        itemBtnGroup.appendChild(execBtn);
+        itemBtnGroup.appendChild(editItemBtn);
+        itemBtnGroup.appendChild(delItemBtn);
+
+        itemRow.appendChild(itemInfo);
+        itemRow.appendChild(itemBtnGroup);
+        catBody.appendChild(itemRow);
+      });
+    }
+
+    catCard.appendChild(header);
+    catCard.appendChild(catBody);
+    container.appendChild(catCard);
+  });
+}
+
+function openCategoryEditor(catId = null) {
+  editingCatId = catId;
+  const modal = document.getElementById('category-editor-modal');
+  const titleEl = document.getElementById('cat-editor-title');
+  const titleInput = document.getElementById('cat-input-title');
+  const noteInput = document.getElementById('cat-input-note');
+
+  if (!modal) return;
+
+  if (catId) {
+    if (titleEl) titleEl.innerText = "✏️ 編輯分類";
+    const modeData = launcherData[currentLaunchMode];
+    const cat = modeData.categories.find(c => c.id === catId);
+    if (cat) {
+      if (titleInput) titleInput.value = cat.title || '';
+      if (noteInput) noteInput.value = cat.note || '';
+    }
+  } else {
+    if (titleEl) titleEl.innerText = "➕ 新增分類";
+    if (titleInput) titleInput.value = '';
+    if (noteInput) noteInput.value = '';
+  }
+  modal.classList.remove('hidden');
+  ipcRenderer.send('set-ignore-mouse', false, { forward: false });
+}
+
+function openItemEditor(catId, itemId = null) {
+  editingItemCatId = catId;
+  editingItemId = itemId;
+  const modal = document.getElementById('item-editor-modal');
+  const titleEl = document.getElementById('item-editor-title');
+  const titleInput = document.getElementById('item-input-title');
+  const pathInput = document.getElementById('item-input-path');
+  const noteInput = document.getElementById('item-input-note');
+
+  if (!modal) return;
+
+  if (itemId) {
+    if (titleEl) titleEl.innerText = "✏️ 編輯捷徑項目";
+    const modeData = launcherData[currentLaunchMode];
+    const cat = modeData.categories.find(c => c.id === catId);
+    if (cat) {
+      const item = cat.items.find(i => i.id === itemId);
+      if (item) {
+        if (titleInput) titleInput.value = item.title || '';
+        if (pathInput) pathInput.value = item.path || '';
+        if (noteInput) noteInput.value = item.note || '';
+      }
+    }
+  } else {
+    if (titleEl) titleEl.innerText = "➕ 新增捷徑項目";
+    if (titleInput) titleInput.value = '';
+    if (pathInput) pathInput.value = '';
+    if (noteInput) noteInput.value = '';
+  }
+  modal.classList.remove('hidden');
+  ipcRenderer.send('set-ignore-mouse', false, { forward: false });
+}
 
 // --- Initialize App ---
 window.addEventListener('DOMContentLoaded', async () => {

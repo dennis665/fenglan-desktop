@@ -622,3 +622,132 @@ hr {
   transform: translate3d(0, 0, 0);
   backface-visibility: hidden;
 }
+
+/* Quick File Launcher Modal & Accordion Categories */
+#quick-launch-modal .modal-content {
+  width: calc(440px * (var(--mascot-font-size, 14px) / 14px));
+  height: calc(460px * (var(--mascot-font-size, 14px) / 14px));
+  max-width: 95vw;
+  max-height: 92vh;
+}
+
+.launch-cat-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  overflow: hidden;
+  transition: border-color 0.2s;
+}
+
+.launch-cat-header {
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.25);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+}
+
+.launch-cat-header:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.launch-cat-title {
+  font-weight: bold;
+  color: #74b9ff;
+  font-size: 1.05em;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.launch-cat-note {
+  font-size: 0.8em;
+  color: #b2bec3;
+  margin-top: 2px;
+}
+
+.launch-cat-body {
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.launch-item-row {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 6px 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.launch-item-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.launch-item-name {
+  font-weight: bold;
+  color: #ffffff;
+  font-size: 0.95em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.launch-item-path {
+  font-size: 0.75em;
+  color: #74b9ff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.launch-item-note {
+  font-size: 0.75em;
+  color: #b2bec3;
+}
+
+.btn-exec-launch {
+  padding: 4px 10px;
+  background: #0984e3;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btn-exec-launch:hover {
+  background: #00cec9;
+}
+
+/* Drag & Drop Reordering Visual Styles */
+.launch-cat-card[draggable="true"],
+.launch-item-row[draggable="true"] {
+  cursor: grab;
+}
+
+.launch-cat-card.dragging,
+.launch-item-row.dragging {
+  opacity: 0.45;
+  border: 2px dashed #FDCB6E !important;
+  background: rgba(253, 203, 110, 0.1) !important;
+}
+
+.launch-cat-card.drag-over,
+.launch-item-row.drag-over {
+  border-top: 2px solid #74b9ff !important;
+  background: rgba(116, 185, 255, 0.15) !important;
+}

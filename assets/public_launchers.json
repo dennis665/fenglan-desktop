@@ -1,0 +1,36 @@
+{
+  "categories": [
+    {
+      "id": "cat_def_public_1",
+      "title": "公開團隊捷徑",
+      "note": "團隊共享檔案與開啟檔 (會提交至 Git)",
+      "collapsed": false,
+      "items": [
+        {
+          "id": "item_def_public_1",
+          "title": "開啟記事本 (Notepad)",
+          "path": "notepad.exe",
+          "note": "點擊執行開啟 Windows 記事本"
+        },
+        {
+          "id": "item_pub_explorer",
+          "title": "檔案總管 (File Explorer)",
+          "path": "explorer.exe",
+          "note": "開啟 Windows 系統檔案總管"
+        },
+        {
+          "id": "item_pub_rdp",
+          "title": "遠端桌面連線 (Remote Desktop Connection)",
+          "path": "mstsc.exe",
+          "note": "開啟 Windows 遠端桌面連線工具"
+        },
+        {
+          "id": "item_1785219437615",
+          "title": "Microsoft Teams",
+          "path": "ms-teams:",
+          "note": "微軟團隊協作與會議通訊軟體"
+        }
+      ]
+    }
+  ]
+}

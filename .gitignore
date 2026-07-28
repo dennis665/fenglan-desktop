@@ -28,3 +28,8 @@ assets/media/
 
 # 忽略自訂影音播放清單數據 (個人歌單設定)
 assets/custom_media.json
+
+# 忽略私人快捷開啟檔設定 (個人檔案與捷徑路徑不提交至 Git)
+assets/private_launchers.json
+
+scratch/
