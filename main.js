@@ -66,6 +66,7 @@ function calculateCPUUsage() {
 }
 
 let systemMonitorInterval = null;
+let cursorMonitorInterval = null;
 
 function createWindow() {
   const displays = screen.getAllDisplays();
@@ -138,6 +139,21 @@ function createWindow() {
         }
       }
     }, 3000);
+  }
+
+  // Polling hardware cursor screen position for 100% reliable mouse hover detection on transparent windows
+  if (!cursorMonitorInterval) {
+    cursorMonitorInterval = setInterval(() => {
+      try {
+        const point = screen.getCursorScreenPoint();
+        const allWindows = BrowserWindow.getAllWindows();
+        for (const w of allWindows) {
+          if (w && !w.isDestroyed() && w.isVisible()) {
+            w.webContents.send('global-cursor-pos', point);
+          }
+        }
+      } catch (err) {}
+    }, 50);
   }
 }
 

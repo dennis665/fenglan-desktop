@@ -149,6 +149,8 @@ hr {
   border-radius: 12px;
   width: calc(290px * (var(--mascot-font-size, 14px) / 14px));
   height: calc(300px * (var(--mascot-font-size, 14px) / 14px));
+  max-width: 95vw;
+  max-height: 92vh;
   display: flex;
   flex-direction: column;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.9);
@@ -481,7 +483,8 @@ hr {
   animation: rockMascot 0.4s ease-in-out infinite alternate;
 }
 
-.dragging #mascot-body {
+.dragging #mascot-body,
+.falling #mascot-body {
   animation: shakeMascot 0.15s linear infinite;
 }
 

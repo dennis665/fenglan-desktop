@@ -108,17 +108,12 @@
         <!-- Tab Content: Characters -->
         <div id="tab-chars" class="tab-content active-content">
           <div class="chars-grid" id="chars-list-grid">
-            <!-- Dynamically populated from JS -->
           </div>
         </div>
 
         <!-- Tab Content: Actions -->
         <div id="tab-actions" class="tab-content">
           <div class="actions-list">
-            <div class="action-btn-item" data-action="idle">🐾 發呆原地 (基礎)</div>
-            <div class="action-btn-item" data-action="walk">🚶 踏步走動 (基礎)</div>
-            <div class="action-btn-item locked-action" id="act-spin" data-action="spin">🌀 魔法轉圈圈 (Lv.2解鎖)</div>
-            <div class="action-btn-item locked-action" id="act-magic" data-action="cast">✨ 釋放小魔法 (Lv.4解鎖)</div>
           </div>
         </div>
       </div>
@@ -206,12 +201,11 @@
   <div id="admin-modal" class="modal hidden">
     <div class="modal-content">
       <div class="modal-header">
-        <h2>🛠️ 開發者管理面板</h2>
+        <h2>🛠️ 開發者設定</h2>
         <span class="close-btn" id="close-admin">&times;</span>
       </div>
       <div class="modal-body">
-        <!-- Control Section -->
-        <div id="admin-control-section">
+        <div style="display: flex; flex-direction: column; gap: 10px;">
           <div class="settings-group">
             <label>1. 選擇角色與動作</label>
             <div style="display: flex; gap: 4px; margin-top: 4px; align-items: center;">
@@ -230,6 +224,7 @@
                 <option value="walk_down_left">走路-左下 (Walk Down Left)</option>
                 <option value="walk_down_right">走路-右下 (Walk Down Right)</option>
                 <option value="dragging">拖曳 (Drag)</option>
+                <option value="falling">下墜 (Falling)</option>
                 <option value="clicked">點擊 (Clicked)</option>
               </select>
             </div>
@@ -245,11 +240,10 @@
               </div>
             </div>
           </div>
-          
+
           <div class="settings-group" style="margin-top: 10px;">
-            <label>2. 上傳 WebP 動圖</label>
-            <button id="admin-upload-btn" class="task-btn" style="margin-top: 6px; width: 100%; padding: 6px; font-size: 11px;">選擇並上傳 WebP 檔案</button>
-            <p class="settings-hint" style="margin-top: 2px;">選擇一個 .webp 檔案，系統會將其複製至 assets 資料夾並與該動作綁定。</p>
+            <label>2. 上傳對應動作的 WebP 動圖</label>
+            <button id="admin-upload-btn" class="task-btn" style="width: 100%; margin-top: 4px; padding: 6px;">選擇並上傳 WebP 檔案</button>
           </div>
           
           <div class="settings-group" style="margin-top: 10px;">

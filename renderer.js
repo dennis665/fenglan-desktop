@@ -154,8 +154,7 @@ function renderCharactersList() {
     `;
     
     card.addEventListener('click', () => {
-      currentCharacter = char.id;
-      localStorage.setItem('mascot_current_character', char.id);
+      saveCurrentCharacter(char.id);
       renderCharactersList();
       
       const imgEl = document.getElementById('mascot-img');
@@ -169,6 +168,7 @@ function renderCharactersList() {
     
     grid.appendChild(card);
   });
+  renderActionsTab();
 }
 
 function renderAdminSelectChar() {
@@ -221,11 +221,12 @@ const screenIndex = parseInt(urlParams.get('screenIndex')) || 0;
 // Mascot Position & AI Variables
 let windowX = parseInt(localStorage.getItem(`mascot_pos_x_${screenIndex}`)) || 500;
 let windowY = parseInt(localStorage.getItem(`mascot_pos_y_${screenIndex}`)) || 500;
+let dragStartHeight = windowY;
 let allowDialogue = localStorage.getItem(`mascot_allow_dialogue_${screenIndex}`) !== 'false';
 let mascotScale = parseFloat(localStorage.getItem(`mascot_scale_${screenIndex}`)) || 1.0;
 let mascotFontSizeIdx = parseInt(localStorage.getItem(`mascot_fontsize_idx_${screenIndex}`)) || 1; // Default to index 1 (Medium)
-const fontSizes = [13, 17, 21];
-const fontSizeNames = ['小', '中', '大'];
+const fontSizes = [13, 17, 21, 25];
+const fontSizeNames = ['小', '中', '大', '特大'];
 
 function applyFontSize() {
   const size = fontSizes[mascotFontSizeIdx];
@@ -233,6 +234,18 @@ function applyFontSize() {
   const btn = document.getElementById('menu-toggle-fontsize');
   if (btn) {
     btn.innerText = `字體大小: ${fontSizeNames[mascotFontSizeIdx]}`;
+  }
+}
+function saveCurrentCharacter(charId) {
+  currentCharacter = charId;
+  localStorage.setItem(`mascot_current_character_${screenIndex}`, charId);
+}
+function logDebug(msg) {
+  try {
+    const logPath = path.join(__dirname, 'drag_debug.log');
+    fs.appendFileSync(logPath, `${new Date().toISOString()} [Screen ${screenIndex}] ${msg}\n`, 'utf8');
+  } catch (err) {
+    console.error("logDebug failed:", err);
   }
 }
 let screenWidth = 1920;
@@ -264,6 +277,18 @@ let isWalking = false;
 let walkDirection = 'right'; // 'right', 'left', 'up', 'down'
 let walkSpeed = 1.5;
 let walkTimer = null;
+let activeActionTimer = null;
+
+function clearActiveActionTimer() {
+  if (activeActionTimer) {
+    clearTimeout(activeActionTimer);
+    activeActionTimer = null;
+  }
+  if (walkTimer) {
+    clearTimeout(walkTimer);
+    walkTimer = null;
+  }
+}
 let walkStepsCount = 0;
 let walkSegmentsLeft = 0;
 let walkStepsLeft = 0;
@@ -275,7 +300,11 @@ const gravity = 0.8;
 let taskbarOffset = 50; // estimate taskbar height on Windows
 
 let currentMascotState = 'idle'; // idle, walking, dragging, falling, clicked
-let currentCharacter = localStorage.getItem('mascot_current_character') || 'cat';
+let currentCharacter = localStorage.getItem(`mascot_current_character_${screenIndex}`);
+if (!currentCharacter) {
+  currentCharacter = 'cat';
+  localStorage.setItem(`mascot_current_character_${screenIndex}`, 'cat');
+}
 
 // Dialog variables
 let dialogueTimeout = null;
@@ -799,8 +828,25 @@ function stopChiptune() {
 
 // --- IPC Interface setup ---
 // Register window mouse ignore logic
-function registerMouseIgnore() {
-  // Elements that can be clicked on
+function checkMouseHover(clientX, clientY) {
+  // 1. If currently dragging or holding the mascot, NEVER ignore mouse events!
+  if (isDragging) {
+    ipcRenderer.send('set-ignore-mouse', false, { forward: false });
+    return;
+  }
+
+  // 2. If context menu is open, capture all mouse events to allow clicking anywhere to dismiss it!
+  if (contextMenu && !contextMenu.classList.contains('hidden')) {
+    ipcRenderer.send('set-ignore-mouse', false, { forward: false });
+    return;
+  }
+
+  // 3. If any modal is open, capture all mouse events for full modal interaction!
+  if (isAnyModalOpen()) {
+    ipcRenderer.send('set-ignore-mouse', false, { forward: false });
+    return;
+  }
+
   const interactiveElements = [
     mascotBody,
     speechBubble,
@@ -812,27 +858,33 @@ function registerMouseIgnore() {
     document.getElementById('media-modal')
   ];
 
-  window.addEventListener('mousemove', (e) => {
-    // If context menu is open, capture all mouse events to allow clicking anywhere to dismiss it!
-    if (!contextMenu.classList.contains('hidden')) {
-      ipcRenderer.send('set-ignore-mouse', false, { forward: false });
-      return;
-    }
-
-    let onInteractive = false;
-    for (const el of interactiveElements) {
-      if (el && !el.classList.contains('hidden')) {
-        const rect = el.getBoundingClientRect();
-        if (e.clientX >= rect.left && e.clientX <= rect.right &&
-            e.clientY >= rect.top && e.clientY <= rect.bottom) {
-          onInteractive = true;
-          break;
-        }
+  let onInteractive = false;
+  for (const el of interactiveElements) {
+    if (el && !el.classList.contains('hidden')) {
+      const rect = el.getBoundingClientRect();
+      // Give 25px forgiving hit-test padding for mascotBody to make hovering & clicking 100% reliable
+      const pad = (el === mascotBody) ? 25 : 0;
+      if (clientX >= (rect.left - pad) && clientX <= (rect.right + pad) &&
+          clientY >= (rect.top - pad) && clientY <= (rect.bottom + pad)) {
+        onInteractive = true;
+        break;
       }
     }
-    
-    // Send ignore mouse state to main process
-    ipcRenderer.send('set-ignore-mouse', !onInteractive, { forward: true });
+  }
+
+  ipcRenderer.send('set-ignore-mouse', !onInteractive, { forward: true });
+}
+
+function registerMouseIgnore() {
+  window.addEventListener('mousemove', (e) => {
+    checkMouseHover(e.clientX, e.clientY);
+  });
+
+  // Listen to hardware cursor screen position from main process so transparent windows NEVER lose hover tracking!
+  ipcRenderer.on('global-cursor-pos', (event, point) => {
+    const clientX = point.x - virtualDesktopMinX;
+    const clientY = point.y - virtualDesktopMinY;
+    checkMouseHover(clientX, clientY);
   });
 }
 
@@ -906,13 +958,37 @@ const defaultTexts = {
   walk_down_right: "往右下角滑行↘️",
   dragging: "放開我啦喵！><",
   falling: "哇啊啊！重力吸引中！💥",
-  clicked: "嘻嘻，主人找我玩嗎？✨",
+  clicked: [
+    "嘻嘻，主人找我玩嗎？✨",
+    "喵嗚～最喜歡主人了！❤️",
+    "抓到我了嗎？好開心喔！🐾",
+    "蹭蹭～要給奴才罐罐嗎？罐罐愛好者！🥫",
+    "呼嚕呼嚕～伸個懶腰喵！⭐"
+  ],
   exiting: "再見囉，主人！我們會再見的！👋"
 };
 
 function showDialogueForState(char, state) {
   const customKey = `${char}_${state}`;
-  const text = customDialogues[customKey] !== undefined ? customDialogues[customKey] : defaultTexts[state];
+  let rawText = customDialogues[customKey] !== undefined ? customDialogues[customKey] : defaultTexts[state];
+  let text = "";
+  
+  if (Array.isArray(rawText)) {
+    text = rawText[Math.floor(Math.random() * rawText.length)];
+  } else if (typeof rawText === 'string') {
+    let lines = [];
+    if (rawText.includes('|')) {
+      lines = rawText.split('|').map(s => s.trim()).filter(Boolean);
+    } else if (rawText.includes('\n')) {
+      lines = rawText.split('\n').map(s => s.trim()).filter(Boolean);
+    }
+    if (lines.length > 0) {
+      text = lines[Math.floor(Math.random() * lines.length)];
+    } else {
+      text = rawText;
+    }
+  }
+  
   if (text !== undefined && text !== "") {
     showDialogue(text);
   }
@@ -928,30 +1004,56 @@ function setMascotState(state) {
   // Update image source based on state for WebP/JPG rendering
   const imgEl = document.getElementById('mascot-img');
   if (imgEl) {
-    const customKey = `${currentCharacter}_${state}`;
-    if (customImages[customKey]) {
-      imgEl.src = customImages[customKey];
-      imgEl.style.transform = 'none'; // Reset scale transform for custom uploads
-    } else {
-      // Fallback to static placeholder images we generated
-      if (state === 'idle') {
-        imgEl.src = 'assets/idle.webp';
+    let resolvedState = state;
+    if (state === 'falling') {
+      const fallingKey = `${currentCharacter}_falling`;
+      const draggingKey = `${currentCharacter}_dragging`;
+      if (!customImages[fallingKey] && customImages[draggingKey]) {
+        resolvedState = 'dragging';
+      }
+    }
+    
+    // Multi-set random trigger support for 'clicked' state!
+    if (state === 'clicked') {
+      const clickedKey = `${currentCharacter}_clicked`;
+      const historyList = imageHistory[clickedKey] || [];
+      if (historyList.length > 0) {
+        const randomImg = historyList[Math.floor(Math.random() * historyList.length)];
+        imgEl.src = randomImg;
         imgEl.style.transform = 'none';
-      } else if (state === 'walk_left' || state === 'walk_right' || state === 'walk_up' || state === 'walk_down' ||
-                 state === 'walk_up_left' || state === 'walk_up_right' || state === 'walk_down_left' || state === 'walk_down_right') {
-        imgEl.src = 'assets/walk.webp';
-        // Fallback direction flipping
-        if (state === 'walk_left' || state === 'walk_up_left' || state === 'walk_down_left') {
-          imgEl.style.transform = 'scaleX(-1)';
-        } else if (state === 'walk_right' || state === 'walk_up_right' || state === 'walk_down_right') {
-          imgEl.style.transform = 'none';
-        }
-      } else if (state === 'dragging' || state === 'falling') {
-        imgEl.src = 'assets/drag.webp';
+      } else if (customImages[clickedKey]) {
+        imgEl.src = customImages[clickedKey];
         imgEl.style.transform = 'none';
-      } else if (state === 'clicked' || state === 'exiting') {
+      } else {
         imgEl.src = 'assets/clicked.webp';
         imgEl.style.transform = 'none';
+      }
+    } else {
+      const customKey = `${currentCharacter}_${resolvedState}`;
+      if (customImages[customKey]) {
+        imgEl.src = customImages[customKey];
+        imgEl.style.transform = 'none'; // Reset scale transform for custom uploads
+      } else {
+        // Fallback to static placeholder images we generated
+        if (state === 'idle') {
+          imgEl.src = 'assets/idle.webp';
+          imgEl.style.transform = 'none';
+        } else if (state === 'walk_left' || state === 'walk_right' || state === 'walk_up' || state === 'walk_down' ||
+                   state === 'walk_up_left' || state === 'walk_up_right' || state === 'walk_down_left' || state === 'walk_down_right') {
+          imgEl.src = 'assets/walk.webp';
+          // Fallback direction flipping
+          if (state === 'walk_left' || state === 'walk_up_left' || state === 'walk_down_left') {
+            imgEl.style.transform = 'scaleX(-1)';
+          } else if (state === 'walk_right' || state === 'walk_up_right' || state === 'walk_down_right') {
+            imgEl.style.transform = 'none';
+          }
+        } else if (state === 'dragging' || state === 'falling') {
+          imgEl.src = 'assets/drag.webp';
+          imgEl.style.transform = 'none';
+        } else if (state === 'clicked' || state === 'exiting') {
+          imgEl.src = 'assets/clicked.webp';
+          imgEl.style.transform = 'none';
+        }
       }
     }
   }
@@ -984,10 +1086,17 @@ async function syncWindowPosition() {
     const minMascotY = displayY + 10;
     const maxMascotY = displayY + workHeight - windowHeight - 10;
     
-    if (windowX < minMascotX || windowX > maxMascotX || windowY < minMascotY || windowY > maxMascotY) {
-      windowX = displayX + workWidth - windowWidth - 50;
-      windowY = displayY + workHeight - windowHeight - 10;
+    // Offset windowX/windowY into display coordinate space if loaded with un-offset coordinates
+    if (displayX > 0 && windowX < displayX) {
+      windowX += displayX;
     }
+    if (displayY > 0 && windowY < displayY) {
+      windowY += displayY;
+    }
+    
+    // Clamp smoothly without force-resetting to bottom-right corner
+    windowX = Math.max(minMascotX, Math.min(windowX, maxMascotX));
+    windowY = Math.max(minMascotY, Math.min(windowY, maxMascotY));
     
     updateMascotDOMPosition();
   }
@@ -998,13 +1107,24 @@ function initDragAndDrop() {
   mascotBody.addEventListener('mousedown', (e) => {
     if (e.button !== 0) return; // Only left click
     
+    const pressStartTime = Date.now();
+    let isHoldDrag = false;
+    dragStartHeight = windowY; // Record the height before dragging
+    logDebug(`[mousedown] dragStartHeight=${dragStartHeight}, windowY=${windowY}`);
+    
     isDragging = true;
     isFalling = false;
     isWalking = false;
-    if (walkTimer) clearTimeout(walkTimer);
+    clearActiveActionTimer();
     
-    setMascotState('dragging');
-    showDialogue("放開我啦喵！><");
+    // Hold timer: only play dragging animation/dialogue if held for > 1s
+    const dragTimer = setTimeout(() => {
+      if (isDragging) {
+        isHoldDrag = true;
+        setMascotState('dragging');
+        showDialogue("放開我啦喵！><");
+      }
+    }, 1000);
     
     // Calculate drag offset relative to the mascot container top-left inside virtual desktop space
     const dragOffsetX = e.clientX - (windowX - virtualDesktopMinX);
@@ -1031,17 +1151,44 @@ function initDragAndDrop() {
     
     const onMouseUp = async () => {
       isDragging = false;
+      clearTimeout(dragTimer);
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
       
       // Update matched display boundary settings relative to cursor location
       await syncWindowPosition();
       
-      // Start falling back to bottom of screen (gravity simulation!)
-      isFalling = true;
-      fallSpeed = 0;
-      setMascotState('falling');
-      requestAnimationFrame(gravityFallLoop);
+      const duration = Date.now() - pressStartTime;
+      logDebug(`[onMouseUp] duration=${duration}, windowY=${windowY}, dragStartHeight=${dragStartHeight}`);
+      if (duration < 1000) {
+        // It's a CLICK!
+        // Release mouse within 1s: do clicked action (play clicked WebP for 8 seconds, then idle)
+        clearActiveActionTimer();
+        setMascotState('clicked');
+        showDialogue("嘻嘻，主人找我玩嗎？✨");
+        activeActionTimer = setTimeout(() => {
+          activeActionTimer = null;
+          if (currentMascotState === 'clicked') {
+            setMascotState('idle');
+            startWalkingAI(); // Resume AI
+          }
+        }, 8000);
+      } else {
+        // It's a DRAG!
+        // Released after holding for > 1s
+        logDebug(`[onMouseUp Drag check] windowY=${windowY} < dragStartHeight=${dragStartHeight} is ${windowY < dragStartHeight}`);
+        if (windowY < dragStartHeight) {
+          // If the release height is higher than before dragging: fall down to dragStartHeight
+          isFalling = true;
+          fallSpeed = 0;
+          setMascotState('falling');
+          requestAnimationFrame(gravityFallLoop);
+        } else {
+          // If the release height is lower or equal: directly go to idle & random walking
+          setMascotState('idle');
+          startWalkingAI();
+        }
+      }
       
       // Trigger daily task count
       dailyProgress.clickCount++;
@@ -1063,22 +1210,19 @@ function initDragAndDrop() {
 function gravityFallLoop() {
   if (!isFalling) return;
   
-  const targetY = displayY + workHeight - windowHeight;
+  // Use dragStartHeight as the landing floor level!
+  const targetY = dragStartHeight;
   
   if (windowY < targetY) {
     fallSpeed += gravity;
     windowY += fallSpeed;
+    logDebug(`[gravityFallLoop step] windowY=${windowY}, targetY=${targetY}, fallSpeed=${fallSpeed}`);
     if (windowY >= targetY) {
       windowY = targetY;
       isFalling = false;
-      setMascotState('clicked'); // Landing happy state
-      showDialogue("呼！安全降落！🌟");
-      setTimeout(() => {
-        if (currentMascotState === 'clicked') {
-          setMascotState('idle');
-          startWalkingAI(); // Resume AI
-        }
-      }, 1000);
+      // Landing from drag: NOT landing clicked action! Directly idle & walk!
+      setMascotState('idle');
+      startWalkingAI();
     }
     updateMascotDOMPosition();
     if (isFalling) {
@@ -1098,7 +1242,7 @@ function isAnyModalOpen() {
 
 async function startWalkingAI() {
   if (!allowWalking) return; // Stop walking if user disabled free-roaming
-  if (isDragging || isFalling || isWalking) return;
+  if (isDragging || isFalling || isWalking || currentMascotState === 'clicked' || currentMascotState === 'exiting') return;
   if (isAnyModalOpen()) return; // Stop walking AI if any setting modal is open
   if (contextMenu && !contextMenu.classList.contains('hidden')) return; // Stop if menu is open
   
@@ -1114,7 +1258,7 @@ async function startWalkingAI() {
 }
 
 function startNextWalkSegment() {
-  if (isDragging || isFalling) {
+  if (isDragging || isFalling || currentMascotState === 'clicked' || currentMascotState === 'exiting') {
     isWalking = false;
     return;
   }
@@ -1401,16 +1545,16 @@ function updateTasksUI() {
 
 // Unlock characters, tracks, actions based on level
 function updateLocks() {
-  // Actions
+  // Actions are permanently unlocked
   const spinAct = document.getElementById('act-spin');
-  if (userLevel >= 2) {
+  if (spinAct) {
     spinAct.classList.remove('locked-action');
-    spinAct.innerText = "🌀 魔法轉圈圈 (已解鎖)";
+    spinAct.innerText = "🌀 魔法轉圈圈 (基礎)";
   }
   const magicAct = document.getElementById('act-magic');
-  if (userLevel >= 4) {
+  if (magicAct) {
     magicAct.classList.remove('locked-action');
-    magicAct.innerText = "✨ 釋放小魔法 (已解鎖)";
+    magicAct.innerText = "✨ 釋放小魔法 (基礎)";
   }
 }
 
@@ -1562,71 +1706,89 @@ function initUIEvents() {
   });
 
   // Relaunch application option to release memory
-  document.getElementById('menu-relaunch').addEventListener('click', () => {
-    contextMenu.classList.add('hidden');
-    
-    // Save state first to prevent progress loss
-    saveProgress();
-    stopAllPlayback();
-    
-    showDialogue("🔄 正在儲存進度並重啟釋放記憶體...", 3000);
-    
-    setTimeout(() => {
-      ipcRenderer.send('relaunch-app');
-    }, 800);
-  });
+  const relaunchBtn = document.getElementById('menu-relaunch');
+  if (relaunchBtn) {
+    relaunchBtn.addEventListener('click', () => {
+      contextMenu.classList.add('hidden');
+      
+      // Save state first to prevent progress loss
+      saveProgress();
+      stopAllPlayback();
+      
+      showDialogue("🔄 正在儲存進度並重啟釋放記憶體...", 3000);
+      
+      setTimeout(() => {
+        ipcRenderer.send('relaunch-app');
+      }, 800);
+    });
+  }
 
   // Quit with animation and goodbye speech
-  document.getElementById('menu-quit').addEventListener('click', () => {
-    contextMenu.classList.add('hidden');
-    setMascotState('clicked'); // Jump happily to say goodbye
-    
-    // Choose goodbye dialogue based on character
-    let goodbyeText = "嗚嗚……主人再見喵……下次還要召喚我喔！👋";
-    
-    showDialogue(goodbyeText, 3000);
-    
-    // Tell state machine we are exiting to prevent other timers/dialogues
-    currentMascotState = 'exiting';
-    isWalking = false;
-    if (walkTimer) clearTimeout(walkTimer);
-    
-    setTimeout(() => {
-      ipcRenderer.send('close-app');
-    }, 2000);
-  });
+  const quitBtn = document.getElementById('menu-quit');
+  if (quitBtn) {
+    quitBtn.addEventListener('click', () => {
+      contextMenu.classList.add('hidden');
+      setMascotState('clicked'); // Jump happily to say goodbye
+      
+      // Choose goodbye dialogue based on character
+      let goodbyeText = "嗚嗚……主人再見喵……下次還要召喚我喔！👋";
+      
+      showDialogue(goodbyeText, 3000);
+      
+      // Tell state machine we are exiting to prevent other timers/dialogues
+      currentMascotState = 'exiting';
+      isWalking = false;
+      if (walkTimer) clearTimeout(walkTimer);
+      
+      setTimeout(() => {
+        ipcRenderer.send('close-app');
+      }, 2000);
+    });
+  }
 
 
   // Tasks Panel trigger
-  document.getElementById('menu-tasks').addEventListener('click', () => {
-    tasksModal.classList.remove('hidden');
-    contextMenu.classList.add('hidden');
-    updateTasksUI();
-    isWalking = false;
-    if (walkTimer) clearTimeout(walkTimer);
-    setMascotState('idle');
-  });
+  const menuTasksBtn = document.getElementById('menu-tasks');
+  if (menuTasksBtn) {
+    menuTasksBtn.addEventListener('click', () => {
+      if (tasksModal) tasksModal.classList.remove('hidden');
+      contextMenu.classList.add('hidden');
+      updateTasksUI();
+      isWalking = false;
+      if (walkTimer) clearTimeout(walkTimer);
+      setMascotState('idle');
+    });
+  }
   
-  document.getElementById('close-tasks').addEventListener('click', () => {
-    tasksModal.classList.add('hidden');
-    setTimeout(() => { if (!isAnyModalOpen()) startWalkingAI(); }, 100);
-  });
+  const closeTasksBtn = document.getElementById('close-tasks');
+  if (closeTasksBtn) {
+    closeTasksBtn.addEventListener('click', () => {
+      if (tasksModal) tasksModal.classList.add('hidden');
+      setTimeout(() => { if (!isAnyModalOpen()) startWalkingAI(); }, 100);
+    });
+  }
 
   // Library Panel trigger
-  document.getElementById('menu-library').addEventListener('click', () => {
-    libraryModal.classList.remove('hidden');
-    contextMenu.classList.add('hidden');
-    updateLocks();
-    renderCharactersList(); // update dynamic character list!
-    isWalking = false;
-    if (walkTimer) clearTimeout(walkTimer);
-    setMascotState('idle');
-  });
+  const menuLibraryBtn = document.getElementById('menu-library');
+  if (menuLibraryBtn) {
+    menuLibraryBtn.addEventListener('click', () => {
+      if (libraryModal) libraryModal.classList.remove('hidden');
+      contextMenu.classList.add('hidden');
+      updateLocks();
+      renderCharactersList(); // update dynamic character list!
+      isWalking = false;
+      if (walkTimer) clearTimeout(walkTimer);
+      setMascotState('idle');
+    });
+  }
   
-  document.getElementById('close-library').addEventListener('click', () => {
-    libraryModal.classList.add('hidden');
-    setTimeout(() => { if (!isAnyModalOpen()) startWalkingAI(); }, 100);
-  });
+  const closeLibraryBtn = document.getElementById('close-library');
+  if (closeLibraryBtn) {
+    closeLibraryBtn.addEventListener('click', () => {
+      if (libraryModal) libraryModal.classList.add('hidden');
+      setTimeout(() => { if (!isAnyModalOpen()) startWalkingAI(); }, 100);
+    });
+  }
 
   // Settings Panel trigger
   const settingsModal = document.getElementById('settings-modal');
@@ -1635,82 +1797,104 @@ function initUIEvents() {
   const cpuVal = document.getElementById('cpu-val');
   const memVal = document.getElementById('mem-val');
 
-  document.getElementById('menu-settings').addEventListener('click', () => {
-    settingsModal.classList.remove('hidden');
-    contextMenu.classList.add('hidden');
-    
-    // Set initial values
-    cpuSlider.value = cpuThreshold;
-    memSlider.value = memThreshold;
-    cpuVal.innerText = cpuThreshold;
-    memVal.innerText = memThreshold;
-    document.getElementById('walk-toggle').checked = allowWalking;
-    
-    isWalking = false;
-    if (walkTimer) clearTimeout(walkTimer);
-    setMascotState('idle');
-  });
-
-  document.getElementById('close-settings').addEventListener('click', () => {
-    settingsModal.classList.add('hidden');
-    setTimeout(() => { if (!isAnyModalOpen()) startWalkingAI(); }, 100);
-  });
-
-  // Slider change listeners
-  cpuSlider.addEventListener('input', () => {
-    cpuVal.innerText = cpuSlider.value;
-  });
-
-  memSlider.addEventListener('input', () => {
-    memVal.innerText = memSlider.value;
-  });
-
-  // Save Settings
-  document.getElementById('save-settings-btn').addEventListener('click', () => {
-    cpuThreshold = parseInt(cpuSlider.value);
-    memThreshold = parseInt(memSlider.value);
-    allowWalking = document.getElementById('walk-toggle').checked;
-    
-    localStorage.setItem('mascot_cpu_threshold', cpuThreshold);
-    localStorage.setItem('mascot_mem_threshold', memThreshold);
-    localStorage.setItem('mascot_allow_walking', allowWalking ? 'true' : 'false');
-    
-    settingsModal.classList.add('hidden');
-    
-    if (!allowWalking) {
+  const menuSettingsBtn = document.getElementById('menu-settings');
+  if (menuSettingsBtn) {
+    menuSettingsBtn.addEventListener('click', () => {
+      if (settingsModal) settingsModal.classList.remove('hidden');
+      contextMenu.classList.add('hidden');
+      
+      // Set initial values
+      if (cpuSlider) cpuSlider.value = cpuThreshold;
+      if (memSlider) memSlider.value = memThreshold;
+      if (cpuVal) cpuVal.innerText = cpuThreshold;
+      if (memVal) memVal.innerText = memThreshold;
+      const walkToggle = document.getElementById('walk-toggle');
+      if (walkToggle) walkToggle.checked = allowWalking;
+      
       isWalking = false;
       if (walkTimer) clearTimeout(walkTimer);
       setMascotState('idle');
-    }
-    
-    showDialogue(`⚙️ 設定已儲存！CPU閥值: ${cpuThreshold}%, 記憶體閥值: ${memThreshold}%, 自由走動: ${allowWalking ? '開啟' : '關閉'}`);
-    setTimeout(() => { if (!isAnyModalOpen()) startWalkingAI(); }, 100);
-  });
+    });
+  }
+
+  const closeSettingsBtn = document.getElementById('close-settings');
+  if (closeSettingsBtn) {
+    closeSettingsBtn.addEventListener('click', () => {
+      if (settingsModal) settingsModal.classList.add('hidden');
+      setTimeout(() => { if (!isAnyModalOpen()) startWalkingAI(); }, 100);
+    });
+  }
+
+  // Slider change listeners
+  if (cpuSlider && cpuVal) {
+    cpuSlider.addEventListener('input', () => {
+      cpuVal.innerText = cpuSlider.value;
+    });
+  }
+
+  if (memSlider && memVal) {
+    memSlider.addEventListener('input', () => {
+      memVal.innerText = memSlider.value;
+    });
+  }
+
+  // Save Settings
+  const saveSettingsBtn = document.getElementById('save-settings-btn');
+  if (saveSettingsBtn) {
+    saveSettingsBtn.addEventListener('click', () => {
+      if (cpuSlider) cpuThreshold = parseInt(cpuSlider.value);
+      if (memSlider) memThreshold = parseInt(memSlider.value);
+      const walkToggle = document.getElementById('walk-toggle');
+      if (walkToggle) allowWalking = walkToggle.checked;
+      
+      localStorage.setItem('mascot_cpu_threshold', cpuThreshold);
+      localStorage.setItem('mascot_mem_threshold', memThreshold);
+      localStorage.setItem('mascot_allow_walking', allowWalking ? 'true' : 'false');
+      
+      if (settingsModal) settingsModal.classList.add('hidden');
+      
+      if (!allowWalking) {
+        isWalking = false;
+        if (walkTimer) clearTimeout(walkTimer);
+        setMascotState('idle');
+      }
+      
+      showDialogue(`⚙️ 設定已儲存！CPU閥值: ${cpuThreshold}%, 記憶體閥值: ${memThreshold}%, 自由走動: ${allowWalking ? '開啟' : '關閉'}`);
+      setTimeout(() => { if (!isAnyModalOpen()) startWalkingAI(); }, 100);
+    });
+  }
 
   // Show Media Player Modal
-  document.getElementById('menu-media-player').addEventListener('click', () => {
-    document.getElementById('media-modal').classList.remove('hidden');
-    contextMenu.classList.add('hidden');
-    renderPlaylistUI();
-    
-    // Resume visualizer if audio is playing in the background
-    if (isPlaying) {
-      const playlist = getPlaylist();
-      const track = playlist.find(t => t.id === currentTrackId);
-      if (track && track.type !== 'video') {
-        startVisualizerAnimation();
+  const menuMediaBtn = document.getElementById('menu-media-player');
+  if (menuMediaBtn) {
+    menuMediaBtn.addEventListener('click', () => {
+      const mediaModal = document.getElementById('media-modal');
+      if (mediaModal) mediaModal.classList.remove('hidden');
+      contextMenu.classList.add('hidden');
+      renderPlaylistUI();
+      
+      if (isPlaying) {
+        const playlist = getPlaylist();
+        const track = playlist.find(t => t.id === currentTrackId);
+        if (track && track.type !== 'video') {
+          startVisualizerAnimation();
+        }
       }
-    }
-    
-    isWalking = false;
-    if (walkTimer) clearTimeout(walkTimer);
-    setMascotState('idle');
-  });
+      
+      isWalking = false;
+      if (walkTimer) clearTimeout(walkTimer);
+      setMascotState('idle');
+    });
+  }
 
-  document.getElementById('close-media').addEventListener('click', () => {
-    document.getElementById('media-modal').classList.add('hidden');
-    setTimeout(() => { if (!isAnyModalOpen()) startWalkingAI(); }, 100);
-  });
+  const closeMediaBtn = document.getElementById('close-media');
+  if (closeMediaBtn) {
+    closeMediaBtn.addEventListener('click', () => {
+      const mediaModal = document.getElementById('media-modal');
+      if (mediaModal) mediaModal.classList.add('hidden');
+      setTimeout(() => { if (!isAnyModalOpen()) startWalkingAI(); }, 100);
+    });
+  }
 
   // Tab Link Switches
   document.querySelectorAll('.tab-link').forEach(button => {
@@ -1763,48 +1947,99 @@ function initUIEvents() {
     }
   });
 
-  // Action showcase list
-  document.querySelectorAll('.action-btn-item').forEach(item => {
-    item.addEventListener('click', () => {
-      const action = item.dataset.action;
-      if (action === 'spin' && userLevel < 2) return;
-      if (action === 'cast' && userLevel < 4) return;
-      
-      libraryModal.classList.add('hidden');
-      isWalking = false;
-      if (walkTimer) clearTimeout(walkTimer);
-      
-      if (action === 'idle') {
+  // Dynamic Actions Tab Renderer
+  renderActionsTab();
+}
+
+function renderActionsTab() {
+  const container = document.querySelector('#tab-actions .actions-list');
+  if (!container) return;
+  
+  // Calculate how many clicked variants exist for the current character
+  const clickedKey = `${currentCharacter}_clicked`;
+  const clickedHistory = imageHistory[clickedKey] || [];
+  let clickedCount = clickedHistory.length;
+  if (clickedCount === 0) {
+    clickedCount = customImages[clickedKey] ? 1 : 1; // Default is at least 1
+  }
+
+  const actionsList = [
+    { action: 'idle', label: '🐾 發呆 (Idle)' },
+    { action: 'walk_left', label: '👈 走路-左 (Walk Left)' },
+    { action: 'walk_right', label: '👉 走路-右 (Walk Right)' },
+    { action: 'walk_up', label: '👆 走路-上 (Walk Up)' },
+    { action: 'walk_down', label: '👇 走路-下 (Walk Down)' },
+    { action: 'walk_up_left', label: '↖️ 走路-左上 (Walk Up Left)' },
+    { action: 'walk_up_right', label: '↗️ 走路-右上 (Walk Up Right)' },
+    { action: 'walk_down_left', label: '↙️ 走路-左下 (Walk Down Left)' },
+    { action: 'walk_down_right', label: '↘️ 走路-右下 (Walk Down Right)' },
+    { action: 'dragging', label: '✊ 拖曳 (Drag)' },
+    { action: 'falling', label: '🪂 下墜 (Falling)' },
+    { action: 'clicked', label: `🎉 點擊 (${clickedCount}種)` }
+  ];
+
+  container.innerHTML = '';
+  actionsList.forEach(item => {
+    const btn = document.createElement('div');
+    btn.className = 'action-btn-item';
+    btn.setAttribute('data-action', item.action);
+    btn.innerText = item.label;
+    
+    btn.addEventListener('click', () => {
+      document.getElementById('library-modal').classList.add('hidden');
+      triggerActionShowcase(item.action);
+    });
+    
+    container.appendChild(btn);
+  });
+}
+
+function triggerActionShowcase(action) {
+  isWalking = false;
+  if (walkTimer) clearTimeout(walkTimer);
+  clearActiveActionTimer();
+  
+  if (action === 'idle') {
+    setMascotState('idle');
+    startWalkingAI();
+  } else if (action.startsWith('walk')) {
+    let dir = action.replace('walk_', '');
+    if (action === 'walk') dir = 'right';
+    walkDirection = dir;
+    isWalking = true;
+    setMascotState(action);
+    walkStepsLeft = 60;
+    walkLoop();
+  } else if (action === 'dragging') {
+    setMascotState('dragging');
+    showDialogue("哎呀！被抓起來了！✊");
+    activeActionTimer = setTimeout(() => {
+      activeActionTimer = null;
+      if (currentMascotState === 'dragging') {
         setMascotState('idle');
         startWalkingAI();
-      } else if (action === 'walk') {
-        isWalking = true;
-        const dir = Math.random() > 0.5 ? 'right' : 'left';
-        walkDirection = dir;
-        setMascotState(dir === 'right' ? 'walk_right' : 'walk_left');
-        walkTargetX = dir === 'right' ? windowX + 100 : windowX - 100;
-        walkTargetY = windowY;
-        
-        // Boundaries clamp
-        const maxX = screenWidth - windowWidth;
-        if (walkTargetX < 0) walkTargetX = 10;
-        if (walkTargetX > maxX) walkTargetX = maxX - 10;
-        
-        walkLoop();
-      } else if (action === 'spin') {
-        setMascotState('clicked');
-        showDialogue("🌀 轉圈圈魔法~ 嘿！");
-        setTimeout(() => { setMascotState('idle'); startWalkingAI(); }, 3000);
-      } else if (action === 'cast') {
-        setMascotState('clicked');
-        showDialogue("✨ 星光閃耀！轟！");
-        setTimeout(() => {
-          setMascotState('idle');
-          startWalkingAI();
-        }, 3000);
       }
-    });
-  });
+    }, 8000);
+  } else if (action === 'falling') {
+    windowY = Math.max(displayY + 10, windowY - 300);
+    updateMascotDOMPosition();
+    isFalling = true;
+    fallSpeed = 0;
+    setMascotState('falling');
+    showDialogue("哇啊啊～掉下去了！🪂");
+    requestAnimationFrame(gravityFallLoop);
+  } else if (action === 'clicked' || action === 'click' || action === 'spin' || action === 'cast') {
+    setMascotState('clicked');
+    showDialogue("喵嗚～太開心了！🎉");
+    activeActionTimer = setTimeout(() => {
+      activeActionTimer = null;
+      if (currentMascotState === 'clicked') {
+        setMascotState('idle');
+        startWalkingAI();
+      }
+    }, 8000);
+  }
+}
 
   // Music (Media) Player Events
   document.getElementById('player-play').addEventListener('click', () => {
@@ -2022,7 +2257,7 @@ function initUIEvents() {
       
       // If it was the active character, reset to 'cat'
       if (currentCharacter === charId) {
-        currentCharacter = 'cat';
+        saveCurrentCharacter('cat');
         const imgEl = document.getElementById('mascot-img');
         if (imgEl) imgEl.style.filter = 'none';
         setMascotState(currentMascotState);
@@ -2092,7 +2327,7 @@ function initUIEvents() {
       saveDb('history');
       
       // Immediately switch the active desktop mascot to this character and action so they can see the result instantly!
-      currentCharacter = selChar;
+      saveCurrentCharacter(selChar);
       const imgEl = document.getElementById('mascot-img');
       if (imgEl) imgEl.style.filter = 'none'; // Custom characters don't use filters
       setMascotState(selAction);
@@ -2169,6 +2404,19 @@ function initUIEvents() {
       return;
     }
     
+    if (action === 'clicked') {
+      const tipBanner = document.createElement('div');
+      tipBanner.style.color = '#FFEAA7';
+      tipBanner.style.fontSize = '9px';
+      tipBanner.style.marginBottom = '4px';
+      tipBanner.style.textAlign = 'center';
+      tipBanner.style.background = 'rgba(255, 234, 167, 0.1)';
+      tipBanner.style.padding = '3px 6px';
+      tipBanner.style.borderRadius = '4px';
+      tipBanner.innerText = "🎲 點擊動作支援多組隨機觸發！歷史列表中的 WebP 皆會納入隨機輪播池。";
+      historyList.appendChild(tipBanner);
+    }
+    
     list.forEach((filePath) => {
       const row = document.createElement('div');
       row.style.display = 'flex';
@@ -2187,19 +2435,25 @@ function initUIEvents() {
       const titleSpan = document.createElement('span');
       titleSpan.innerText = baseName;
       titleSpan.style.color = '#DFE6E9';
-      titleSpan.style.maxWidth = '140px';
+      titleSpan.style.maxWidth = '110px';
       titleSpan.style.overflow = 'hidden';
       titleSpan.style.textOverflow = 'ellipsis';
       titleSpan.style.whiteSpace = 'nowrap';
       
       row.appendChild(titleSpan);
       
+      const btnGroup = document.createElement('div');
+      btnGroup.style.display = 'flex';
+      btnGroup.style.alignItems = 'center';
+      btnGroup.style.gap = '4px';
+      
       if (customImages[key] === filePath) {
         const activeBadge = document.createElement('span');
         activeBadge.innerText = "使用中";
         activeBadge.style.color = '#FFEAA7';
         activeBadge.style.fontWeight = 'bold';
-        row.appendChild(activeBadge);
+        activeBadge.style.fontSize = '8px';
+        btnGroup.appendChild(activeBadge);
       } else {
         const useBtn = document.createElement('button');
         useBtn.innerText = "啟用";
@@ -2217,13 +2471,46 @@ function initUIEvents() {
           showDialogue("✨ 已切換至選取的 WebP 動圖！");
           loadHistoryList(char, action);
         });
-        row.appendChild(useBtn);
+        btnGroup.appendChild(useBtn);
       }
       
+      // Delete history record button
+      const delBtn = document.createElement('button');
+      delBtn.innerText = "刪除";
+      delBtn.className = "task-btn";
+      delBtn.style.background = '#D63031';
+      delBtn.style.padding = '2px 6px';
+      delBtn.style.fontSize = '8px';
+      delBtn.addEventListener('click', () => {
+        imageHistory[key] = (imageHistory[key] || []).filter(p => p !== filePath);
+        saveDb('history');
+        
+        if (customImages[key] === filePath) {
+          delete customImages[key];
+          saveDb('images');
+          if (currentCharacter === char && currentMascotState === action) {
+            setMascotState(currentMascotState);
+          }
+        }
+        
+        try {
+          if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+          }
+        } catch (err) {
+          console.error("Failed to delete history file from disk:", err);
+        }
+        
+        showDialogue("🗑️ 已刪除該歷史紀錄！");
+        loadHistoryList(char, action);
+      });
+      btnGroup.appendChild(delBtn);
+      
+      row.appendChild(btnGroup);
       historyList.appendChild(row);
     });
+    renderActionsTab();
   }
-}
 
 // --- Initialize App ---
 window.addEventListener('DOMContentLoaded', async () => {
@@ -2251,22 +2538,26 @@ window.addEventListener('DOMContentLoaded', async () => {
   startWalkingAI();
   console.log("startWalkingAI completed");
   
-  // UI setup
-  initUIEvents();
-  checkDailyReset();
-  updateLocks();
-  renderCharactersList(); // Init dynamic character list rendering!
-  updateTasksUI();
+  // UI setup with fail-safe try-catch wrappers so core mascot AI & drag mechanics never freeze!
+  try { initUIEvents(); } catch (e) { console.error("initUIEvents error:", e); }
+  try { checkDailyReset(); } catch (e) { console.error("checkDailyReset error:", e); }
+  try { updateLocks(); } catch (e) { console.error("updateLocks error:", e); }
+  try { renderCharactersList(); } catch (e) { console.error("renderCharactersList error:", e); }
+  try { updateTasksUI(); } catch (e) { console.error("updateTasksUI error:", e); }
 
-  // Initialize Media Video Player element and listeners
-  videoPlayer = document.getElementById('media-video-player');
-  if (videoPlayer) {
-    videoPlayer.addEventListener('ended', () => {
-      onTrackEnded();
-    });
+  // Initialize Media Video Player element and listeners safely
+  try {
+    videoPlayer = document.getElementById('media-video-player') || document.getElementById('media-video-screen');
+    if (videoPlayer) {
+      videoPlayer.addEventListener('ended', () => {
+        onTrackEnded();
+      });
+    }
+    updateLoopModeUI();
+    renderPlaylistUI();
+  } catch (e) {
+    console.error("Media player init error:", e);
   }
-  updateLoopModeUI();
-  renderPlaylistUI();
 
   // Volume Slider Initialization & Listener
   const volSlider = document.getElementById('player-volume');
