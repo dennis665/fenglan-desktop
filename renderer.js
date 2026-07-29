@@ -924,9 +924,11 @@ function showDialogue(text, duration = 4000) {
     }
   }, 40);
 
+  // Guarantee dialogue messages stay visible for AT LEAST 3000ms (3 seconds)
+  const finalDuration = Math.max(3000, duration);
   dialogueTimeout = setTimeout(() => {
     speechBubble.classList.add('hidden');
-  }, duration);
+  }, finalDuration);
 }
 
 // Generate dialogue based on PC stats or character
@@ -934,14 +936,16 @@ function handlePCStatusAlert(status) {
   if (isDragging || isFalling || currentMascotState === 'exiting') return; // Don't interrupt dragging/falling/exiting
 
   const currentHour = new Date().getHours();
+  const activeCharObj = getAllCharacters().find(c => c.id === currentCharacter);
+  const charName = activeCharObj ? activeCharObj.name : '桌面寵物';
   
   // Custom dialog logic
   if (status.cpu > cpuThreshold) {
-    showDialogue(`💦 主人！電腦好燙喔！目前 CPU 使用率高達 ${status.cpu}%！小貓快熱昏了喵！`);
+    showDialogue(`💦 主人！電腦好燙喔！目前 CPU 使用率高達 ${status.cpu}%！${charName}快熱昏了！`);
   } else if (status.memory > memThreshold) {
-    showDialogue(`💾 記憶體快被吃光光了！目前使用率 ${status.memory}% (剩餘 ${status.freeMemMB}MB)！快關掉一些沒用的分頁吧！`);
+    showDialogue(`💾 記憶體快被吃光光了！目前使用率 ${status.memory}% (剩餘 ${status.freeMemMB}MB)！${charName}提醒您快關掉一些無用分頁吧！`);
   } else if (currentHour >= 23 || currentHour < 5) {
-    showDialogue("💤 已經是深夜了呢，主人該睡覺了，熬夜傷肝喔！");
+    showDialogue(`💤 已經是深夜了呢，主人該睡覺了，${charName}提醒您早點休息喔！`);
   } else {
     // Normal random cute text
     const normalTexts = {
@@ -954,7 +958,7 @@ function handlePCStatusAlert(status) {
       ]
     };
     
-    // 25% chance of random lines every 3 seconds status update
+    // 15% chance of random lines every 3 seconds status update
     if (Math.random() < 0.15 && speechBubble.classList.contains('hidden')) {
       const list = normalTexts[currentCharacter] || normalTexts.cat;
       const randomLine = list[Math.floor(Math.random() * list.length)];
@@ -1023,11 +1027,7 @@ function setMascotState(state) {
   if (imgEl) {
     let resolvedState = state;
     if (state === 'falling') {
-      const fallingKey = `${currentCharacter}_falling`;
-      const draggingKey = `${currentCharacter}_dragging`;
-      if (!customImages[fallingKey] && customImages[draggingKey]) {
-        resolvedState = 'dragging';
-      }
+      resolvedState = 'dragging';
     }
     
     // Multi-set random trigger support for 'clicked' state!
@@ -1263,8 +1263,8 @@ async function startWalkingAI() {
   if (isAnyModalOpen()) return; // Stop walking AI if any setting modal is open
   if (contextMenu && !contextMenu.classList.contains('hidden')) return; // Stop if menu is open
   
-  // Decide walk frequency randomly
-  const delay = 2500 + Math.random() * 3500; // 2.5~6 seconds
+  // Decide walk frequency randomly (guaranteed idle for at least 3 seconds)
+  const delay = 3500 + Math.random() * 3500; // 3.5~7 seconds
   walkTimer = setTimeout(async () => {
     await syncWindowPosition();
     
@@ -1309,8 +1309,8 @@ function startNextWalkSegment() {
   const directions = availableDirections.length > 0 ? availableDirections : ['left', 'right', 'up', 'down'];
   walkDirection = directions[Math.floor(Math.random() * directions.length)];
   
-  // Walk duration: 45 to 90 updates (approx 1.5s to 3s per segment)
-  walkStepsLeft = 45 + Math.floor(Math.random() * 45);
+  // Walk duration: guaranteed at least 3 seconds (95 to 150 steps @ 33ms = 3.1s to 5.0s per segment)
+  walkStepsLeft = 95 + Math.floor(Math.random() * 55);
   
   isWalking = true;
   
@@ -2199,7 +2199,6 @@ function renderActionsTab() {
     { action: 'walk_down_left', label: '↙️ 走路-左下 (Walk Down Left)' },
     { action: 'walk_down_right', label: '↘️ 走路-右下 (Walk Down Right)' },
     { action: 'dragging', label: '✊ 拖曳 (Drag)' },
-    { action: 'falling', label: '🪂 下墜 (Falling)' },
     { action: 'clicked', label: `🎉 點擊 (${clickedCount}種)` }
   ];
 
@@ -3291,5 +3290,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  showDialogue("✨ 召喚完成！魔法小貓與您同在！");
+  const activeCharObj = getAllCharacters().find(c => c.id === currentCharacter);
+  const activeCharName = activeCharObj ? activeCharObj.name : '桌面寵物';
+  showDialogue(`✨ 召喚完成！${activeCharName}與您同在！`);
 });
